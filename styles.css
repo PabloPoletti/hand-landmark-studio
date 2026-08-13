@@ -81,6 +81,7 @@ h1 {
 }
 
 .ghost:hover,
+.ghost.active,
 .chip:hover,
 .chip.active {
   border-color: var(--accent);

@@ -1,5 +1,5 @@
-import { CONNECTIONS, NAMES, colorFor, boneColor } from "./schema.js?v=33";
-import { predictWilor, wilorToHands } from "./wilor.js?v=33";
+import { CONNECTIONS, NAMES, colorFor, boneColor } from "./schema.js?v=34";
+import { predictWilor, wilorToHands } from "./wilor.js?v=34";
 
 const LOCAL_BASE = new URL("../vendor/mediapipe/", import.meta.url);
 const MODEL = new URL("hand_landmarker.task", LOCAL_BASE).href;
@@ -24,6 +24,7 @@ const note = document.getElementById("detect-note");
 const emptyMsg = document.getElementById("empty-msg");
 const copyBtn = document.getElementById("copy-json");
 const wilorBtn = document.getElementById("wilor-btn");
+const skeletonBtn = document.getElementById("skeleton-btn");
 const canvas = document.getElementById("overlay");
 const ctx = canvas.getContext("2d");
 
@@ -106,7 +107,7 @@ async function initModel() {
     "Modelo de manos",
   );
   try {
-    const three = await import("./hand3d.js?v=33");
+    const three = await import("./hand3d.js?v=34");
     studio = new three.HandStudio3D();
   } catch (err) {
     console.warn("Vista 3D no disponible", err);
@@ -264,7 +265,7 @@ function addOcclusion(landmarks, world) {
     if (typeof lm.visibility === "number") occluded = occluded || lm.visibility < 0.45;
     if (typeof lm.presence === "number") occluded = occluded || lm.presence < 0.5;
     if (TUCK_IDS.includes(i) && hull.length >= 4 && pointInPoly(lm, hull)) occluded = true;
-    if ((src[i]?.z ?? 0) > palmZ + 0.014) occluded = true;
+    if ((src[i]?.z ?? 0) > palmZ + 0.03) occluded = true;
     return { ...lm, occluded };
   });
 }
@@ -374,10 +375,31 @@ function photoLandmarks(hand) {
   }));
 }
 
+function retractTips(landmarks) {
+  const tips = [4, 8, 12, 16, 20];
+  const prev = [3, 7, 11, 15, 19];
+  return landmarks.map((lm, i) => {
+    const idx = tips.indexOf(i);
+    if (idx < 0) return lm;
+    const base = landmarks[prev[idx]];
+    if (!base) return lm;
+    return {
+      ...lm,
+      x: base.x + (lm.x - base.x) * 0.9,
+      y: base.y + (lm.y - base.y) * 0.9,
+    };
+  });
+}
+
 function hybridOccluded(landmarks, hand) {
   return landmarks.map((lm, i) => {
     const wilor = hand.landmarks[i];
-    if (lm.occluded && wilor?.mapped) {
+    if (
+      lm.occluded &&
+      wilor &&
+      Number.isFinite(wilor.x) &&
+      Number.isFinite(wilor.y)
+    ) {
       return { ...lm, x: wilor.x, y: wilor.y, z: wilor.z ?? lm.z };
     }
     return lm;
@@ -387,19 +409,20 @@ function hybridOccluded(landmarks, hand) {
 function renderActive() {
   const hand = lastHands[activeIndex];
   if (!hand || !lastImage) return;
-  const landmarks = hybridOccluded(
-    addOcclusion(photoLandmarks(hand), hand.worldLandmarks),
-    hand,
+  const landmarks = retractTips(
+    hybridOccluded(addOcclusion(photoLandmarks(hand), hand.worldLandmarks), hand),
   );
   drawOverlay(lastImage, landmarks, handednessOf(hand));
+  const ownWorld = hand.worldLandmarks?.length >= 21;
   const world =
-    hand.worldLandmarks?.length >= 21
+    ownWorld
       ? hand.worldLandmarks
       : sources.mediapipe?.[activeIndex]?.worldLandmarks ||
         sources.mediapipe?.[0]?.worldLandmarks ||
         landmarks;
+  const mesh = ownWorld ? hand.mesh : null;
   try {
-    studio?.setHand(world, handednessOf(hand), hand.mesh, landmarks);
+    studio?.setHand(world, handednessOf(hand), mesh, landmarks);
   } catch (err) {
     console.warn(err);
     studio?.setHand(world, handednessOf(hand), null, landmarks);
@@ -411,6 +434,7 @@ function renderActive() {
   }`;
   copyBtn.hidden = false;
   wilorBtn.hidden = false;
+  if (skeletonBtn) skeletonBtn.hidden = false;
 }
 
 function detectionToHands(detection) {
@@ -478,6 +502,7 @@ function showHands(image, detection, source = "mediapipe") {
   if (!lastHands.length) {
     toolbar.hidden = true;
     copyBtn.hidden = true;
+    if (skeletonBtn) skeletonBtn.hidden = true;
     wilorBtn.hidden = false;
     emptyMsg.hidden = false;
     emptyMsg.textContent = `No se detectó ninguna mano en ${width}×${height}. Probá una foto más cercana, con la palma o el dorso bien visibles.`;
@@ -601,6 +626,13 @@ async function refineWithWilor() {
 
 wilorBtn.addEventListener("click", () => {
   refineWithWilor();
+});
+
+skeletonBtn?.addEventListener("click", () => {
+  const on = !studio?.skeletonOnly;
+  studio?.setSkeletonMode(on);
+  skeletonBtn.classList.toggle("active", on);
+  skeletonBtn.textContent = on ? "Ver mano" : "Ver esqueleto";
 });
 
 copyBtn.addEventListener("click", async () => {

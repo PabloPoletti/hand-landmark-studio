@@ -9,7 +9,7 @@
       content="Pegá una foto de una mano y simulá los 21 landmarks MediaPipe en 2D y 3D."
     />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✋</text></svg>" />
-    <link rel="stylesheet" href="styles.css?v=33" />
+    <link rel="stylesheet" href="styles.css?v=34" />
     <script type="importmap">
       {
         "imports": {
@@ -31,6 +31,9 @@
       </div>
       <div class="meta">
         <span id="engine-status" class="pill">Iniciando motor local…</span>
+        <button id="skeleton-btn" class="ghost" type="button" hidden>
+          Ver esqueleto
+        </button>
         <button id="wilor-btn" class="ghost" type="button" hidden>
           Reintentar WiLoR
         </button>
@@ -148,6 +151,6 @@
         });
       })();
     </script>
-    <script type="module" src="js/studio.js?v=33"></script>
+    <script type="module" src="js/studio.js?v=34"></script>
   </body>
 </html>

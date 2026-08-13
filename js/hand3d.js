@@ -1,12 +1,11 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { CONNECTIONS, FINGER_CHAINS, colorFor, boneColor } from "./schema.js?v=33";
+import { CONNECTIONS, FINGER_CHAINS, colorFor, boneColor } from "./schema.js?v=34";
 
 const SKIN_SCALE = 1.72;
-const SURFACE_LIFT = 0.034;
-const PALM_LIFT = 0.055;
-const PALM_EDGES = new Set(["0-1", "0-5", "0-9", "0-13", "0-17", "5-9", "9-13", "13-17"]);
+const MCP_IDS = new Set([1, 5, 9, 13, 17]);
+const TIP_IDS = new Set([4, 8, 12, 16, 20]);
 
 const Y_UP = new THREE.Vector3(0, 1, 0);
 
@@ -62,11 +61,12 @@ function alignmentFromLandmarks(world, handedness) {
   pts.forEach((p) => {
     max = Math.max(max, p.length());
   });
-  const scale = max > 0 ? 1.05 / max : 1;
+  const scale = max > 0 ? 0.88 / max : 1;
   pts.forEach((p) => p.multiplyScalar(scale));
   const center = new THREE.Vector3();
   pts.forEach((p) => center.add(p));
   center.multiplyScalar(1 / pts.length);
+  center.lerp(pts[0], 0.22);
   pts.forEach((p) => p.sub(center));
 
   return {
@@ -104,75 +104,56 @@ function overlayMaterial(color, opacity = 1) {
   });
 }
 
-function palmNormal(pts) {
-  const n = new THREE.Vector3().crossVectors(
-    pts[5].clone().sub(pts[0]),
-    pts[17].clone().sub(pts[0]),
-  );
-  if (n.lengthSq() < 1e-8) return new THREE.Vector3(0, 0, 1);
-  n.normalize();
-  if (n.z < 0) n.negate();
-  return n;
+function markRadius(id, hidden) {
+  if (id === 0) return hidden ? 0.02 : 0.026;
+  if (MCP_IDS.has(id)) return hidden ? 0.016 : 0.02;
+  if (TIP_IDS.has(id)) return hidden ? 0.014 : 0.017;
+  return hidden ? 0.013 : 0.016;
 }
 
-function radiusForId(id) {
-  if (id === 0) return 0.08;
-  for (const finger of FINGER_CHAINS) {
-    const idx = finger.ids.indexOf(id);
-    if (idx >= 0) return finger.radii[idx] * SKIN_SCALE;
-  }
-  return 0.045;
-}
-
-function isPalmEdge(a, b) {
-  return PALM_EDGES.has(a < b ? `${a}-${b}` : `${b}-${a}`);
-}
-
-function surfacePoints(pts) {
-  const normal = palmNormal(pts);
-  return pts.map((p, id) => {
-    const knuckle = id === 0 || id === 5 || id === 9 || id === 13 || id === 17;
-    const lift = (knuckle ? PALM_LIFT : SURFACE_LIFT) + radiusForId(id) * 0.35;
-    return p.clone().addScaledVector(normal, lift);
+function tagOverlay(obj) {
+  obj.userData.overlay = true;
+  obj.traverse((child) => {
+    child.userData.overlay = true;
   });
 }
 
-function addBoneSegment(overlay, a, b, color, radius, hidden) {
-  const mesh = bone(a, b, radius, radius, overlayMaterial(color, hidden ? 0.55 : 0.95));
-  if (mesh) {
-    mesh.renderOrder = 21;
-    overlay.add(mesh);
-  }
+function applyDisplayMode(hand, skeletonOnly) {
+  if (!hand) return;
+  hand.traverse((obj) => {
+    if (!obj.isMesh) return;
+    if (obj.userData.overlay) {
+      obj.visible = true;
+      return;
+    }
+    obj.visible = !skeletonOnly;
+  });
 }
 
 function addSkeleton(group, pts, landmarks = [], handedness = "Unknown") {
   const isRight = handedness === "Right";
-  const normal = palmNormal(pts);
-  const outer = surfacePoints(pts);
   const overlay = new THREE.Group();
   overlay.renderOrder = 20;
 
   CONNECTIONS.forEach(([a, b]) => {
     const hidden = landmarks[a]?.occluded || landmarks[b]?.occluded;
     const color = boneColor(b === 0 ? a : b);
-    const radius = hidden ? 0.0032 : 0.0046;
-    if (isPalmEdge(a, b)) {
-      const mid = outer[a].clone().add(outer[b]).multiplyScalar(0.5).addScaledVector(normal, 0.042);
-      addBoneSegment(overlay, outer[a], mid, color, radius, hidden);
-      addBoneSegment(overlay, mid, outer[b], color, radius, hidden);
-    } else {
-      addBoneSegment(overlay, outer[a], outer[b], color, radius, hidden);
+    const radius = hidden ? 0.0034 : 0.005;
+    const mesh = bone(pts[a], pts[b], radius, radius, overlayMaterial(color, hidden ? 0.55 : 0.96));
+    if (mesh) {
+      mesh.renderOrder = 21;
+      overlay.add(mesh);
     }
   });
 
-  outer.forEach((p, i) => {
+  pts.forEach((p, i) => {
     const hidden = Boolean(landmarks[i]?.occluded);
-    const r = hidden ? 0.011 : 0.014;
+    const r = markRadius(i, hidden);
     const color = colorFor(i);
     const halo = new THREE.Mesh(
       isRight
-        ? new THREE.CylinderGeometry(r + 0.0035, r + 0.0035, r * 0.22, 5)
-        : new THREE.SphereGeometry(r + 0.0035, 22, 18),
+        ? new THREE.CylinderGeometry(r + 0.004, r + 0.004, r * 0.22, 5)
+        : new THREE.SphereGeometry(r + 0.004, 22, 18),
       overlayMaterial(0xffffff, hidden ? 0.45 : 1),
     );
     halo.position.copy(p);
@@ -182,13 +163,14 @@ function addSkeleton(group, pts, landmarks = [], handedness = "Unknown") {
       isRight
         ? new THREE.CylinderGeometry(r, r, r * 0.46, 5)
         : new THREE.SphereGeometry(r, 22, 18),
-      overlayMaterial(color, hidden ? 0.5 : 1),
+      overlayMaterial(color, hidden ? 0.55 : 1),
     );
     mark.position.copy(p);
     mark.renderOrder = 23;
     overlay.add(mark);
   });
 
+  tagOverlay(overlay);
   group.add(overlay);
 }
 
@@ -408,13 +390,14 @@ function makeView(container, cameraPos) {
 export class HandStudio3D {
   constructor() {
     this.views = {
-      front: makeView(document.getElementById("view-front"), new THREE.Vector3(0, 0.15, 2.55)),
+      front: makeView(document.getElementById("view-front"), new THREE.Vector3(0, 0.08, 2.9)),
       threequarter: makeView(
         document.getElementById("view-threequarter"),
-        new THREE.Vector3(1.7, 0.35, 1.85),
+        new THREE.Vector3(1.95, 0.28, 2.15),
       ),
-      side: makeView(document.getElementById("view-side"), new THREE.Vector3(2.55, 0.12, 0.15)),
+      side: makeView(document.getElementById("view-side"), new THREE.Vector3(2.9, 0.08, 0.18)),
     };
+    this.skeletonOnly = false;
     this.resize();
     window.addEventListener("resize", () => this.resize());
     const tick = () => {
@@ -462,9 +445,15 @@ export class HandStudio3D {
         disposeHand(v.hand);
       }
       v.hand = next;
+      applyDisplayMode(v.hand, this.skeletonOnly);
       v.scene.add(v.hand);
     });
     this.resize();
+  }
+
+  setSkeletonMode(on) {
+    this.skeletonOnly = Boolean(on);
+    Object.values(this.views).forEach((v) => applyDisplayMode(v.hand, this.skeletonOnly));
   }
 
   clear() {
