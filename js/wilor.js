@@ -20,14 +20,28 @@ function parseSseJson(text) {
   return payload;
 }
 
+async function startPredict(dataUrl) {
+  const endpoints = [
+    `${WILOR_SPACE}/call/predict`,
+    `${WILOR_SPACE}/gradio_api/call/predict`,
+  ];
+  let last = null;
+  for (const url of endpoints) {
+    const start = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data: [dataUrl] }),
+    });
+    last = { start, url };
+    if (start.ok) return last;
+  }
+  return last;
+}
+
 export async function predictWilor(file, onStatus) {
   onStatus?.("Mandando la foto a WiLoR (Hugging Face)…");
   const dataUrl = await fileToDataUrl(file);
-  const start = await fetch(`${WILOR_SPACE}/gradio_api/call/predict`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ data: [dataUrl] }),
-  });
+  const { start, url } = await startPredict(dataUrl);
 
   if (start.status === 404 || start.status === 410) {
     throw new Error(
@@ -43,7 +57,7 @@ export async function predictWilor(file, onStatus) {
   if (!eventId) throw new Error("El Space no devolvió event_id.");
 
   onStatus?.("Esperando WiLoR… la primera vez puede tardar 1–2 min");
-  const stream = await fetch(`${WILOR_SPACE}/gradio_api/call/predict/${eventId}`);
+  const stream = await fetch(`${url}/${eventId}`);
   if (!stream.ok) throw new Error(`WiLoR falló al devolver el resultado (${stream.status}).`);
   const payload = parseSseJson(await stream.text());
   let result = Array.isArray(payload) ? payload[0] : payload;
