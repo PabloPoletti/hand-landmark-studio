@@ -58,7 +58,7 @@ export const CONNECTIONS = [
 ];
 
 export const FINGER_CHAINS = [
-  { key: "thumb", ids: [1, 2, 3, 4], radii: [0.034, 0.03, 0.026, 0.022] },
+  { key: "thumb", ids: [1, 2, 3, 4], radii: [0.044, 0.04, 0.034, 0.028] },
   { key: "index", ids: [5, 6, 7, 8], radii: [0.03, 0.026, 0.022, 0.018] },
   { key: "middle", ids: [9, 10, 11, 12], radii: [0.031, 0.027, 0.023, 0.018] },
   { key: "ring", ids: [13, 14, 15, 16], radii: [0.029, 0.025, 0.021, 0.017] },

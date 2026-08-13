@@ -169,6 +169,34 @@ function isOccluded(lm) {
   return false;
 }
 
+function distLm(a, b, use3d) {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  const dz = use3d ? (a.z ?? 0) - (b.z ?? 0) : 0;
+  return Math.hypot(dx, dy, dz);
+}
+
+function constrainThumb(landmarks, use3d = false) {
+  if (!landmarks?.[1] || !landmarks[4] || !landmarks[8] || !landmarks[12]) return landmarks;
+  const thumb = distLm(landmarks[1], landmarks[4], use3d);
+  const index = distLm(landmarks[5], landmarks[8], use3d);
+  const middle = distLm(landmarks[9], landmarks[12], use3d);
+  const palm = distLm(landmarks[5], landmarks[17], use3d);
+  const limit = Math.max(index * 0.82, middle * 0.72, palm * 0.7);
+  if (!thumb || !limit || thumb <= limit) return landmarks;
+  const origin = landmarks[1];
+  const scale = limit / thumb;
+  return landmarks.map((lm, i) => {
+    if (i < 2 || i > 4) return lm;
+    return {
+      ...lm,
+      x: origin.x + (lm.x - origin.x) * scale,
+      y: origin.y + (lm.y - origin.y) * scale,
+      z: (origin.z ?? 0) + ((lm.z ?? 0) - (origin.z ?? 0)) * scale,
+    };
+  });
+}
+
 function addOcclusion(landmarks, world) {
   const src = world || landmarks;
   const palm = [0, 5, 9, 13, 17];
@@ -283,10 +311,12 @@ function handednessOf(hand) {
 function renderActive() {
   const hand = lastHands[activeIndex];
   if (!hand || !lastImage) return;
-  const landmarks = addOcclusion(hand.landmarks, hand.worldLandmarks);
+  const landmarks = constrainThumb(addOcclusion(hand.landmarks, hand.worldLandmarks));
+  const world = constrainThumb(hand.worldLandmarks, true);
   hand.landmarks = landmarks;
+  hand.worldLandmarks = world;
   drawOverlay(lastImage, landmarks, handednessOf(hand));
-  studio?.setHand(hand.worldLandmarks, handednessOf(hand), hand.mesh, landmarks);
+  studio?.setHand(world, handednessOf(hand), hand.mesh, landmarks);
   const label = handednessOf(hand) === "Left" ? "izquierda" : "derecha";
   const hidden = landmarks.filter(isOccluded).length;
   note.textContent = `Mano ${activeIndex + 1} · ${label} · 21 landmarks${
