@@ -4,7 +4,9 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { CONNECTIONS, FINGER_CHAINS, colorFor, boneColor } from "./schema.js";
 
 const SKIN_SCALE = 1.72;
-const SURFACE_LIFT = 0.018;
+const SURFACE_LIFT = 0.034;
+const PALM_LIFT = 0.055;
+const PALM_EDGES = new Set(["0-1", "0-5", "0-9", "0-13", "0-17", "5-9", "9-13", "13-17"]);
 
 const Y_UP = new THREE.Vector3(0, 1, 0);
 
@@ -97,38 +99,55 @@ function radiusForId(id) {
   return 0.045;
 }
 
-function surfacePoints(pts, compact = false) {
-  const normal = palmNormal(pts);
-  const pad = compact ? SURFACE_LIFT * 0.55 : SURFACE_LIFT;
-  const scale = compact ? 0.55 : 1;
-  return pts.map((p, id) => p.clone().addScaledVector(normal, radiusForId(id) * scale + pad));
+function isPalmEdge(a, b) {
+  return PALM_EDGES.has(a < b ? `${a}-${b}` : `${b}-${a}`);
 }
 
-function addSkeleton(group, pts, landmarks = [], handedness = "Unknown", compact = false) {
+function surfacePoints(pts) {
+  const normal = palmNormal(pts);
+  return pts.map((p, id) => {
+    const knuckle = id === 0 || id === 5 || id === 9 || id === 13 || id === 17;
+    const lift = (knuckle ? PALM_LIFT : SURFACE_LIFT) + radiusForId(id) * 0.35;
+    return p.clone().addScaledVector(normal, lift);
+  });
+}
+
+function addBoneSegment(overlay, a, b, color, radius, hidden) {
+  const mesh = bone(a, b, radius, radius, overlayMaterial(color, hidden ? 0.55 : 0.95));
+  if (mesh) {
+    mesh.renderOrder = 21;
+    overlay.add(mesh);
+  }
+}
+
+function addSkeleton(group, pts, landmarks = [], handedness = "Unknown") {
   const isRight = handedness === "Right";
-  const outer = surfacePoints(pts, compact);
+  const normal = palmNormal(pts);
+  const outer = surfacePoints(pts);
   const overlay = new THREE.Group();
   overlay.renderOrder = 20;
 
   CONNECTIONS.forEach(([a, b]) => {
     const hidden = landmarks[a]?.occluded || landmarks[b]?.occluded;
     const color = boneColor(b === 0 ? a : b);
-    const radius = hidden ? 0.0036 : 0.0052;
-    const mesh = bone(outer[a], outer[b], radius, radius, overlayMaterial(color, hidden ? 0.55 : 0.92));
-    if (mesh) {
-      mesh.renderOrder = 21;
-      overlay.add(mesh);
+    const radius = hidden ? 0.0032 : 0.0046;
+    if (isPalmEdge(a, b)) {
+      const mid = outer[a].clone().add(outer[b]).multiplyScalar(0.5).addScaledVector(normal, 0.042);
+      addBoneSegment(overlay, outer[a], mid, color, radius, hidden);
+      addBoneSegment(overlay, mid, outer[b], color, radius, hidden);
+    } else {
+      addBoneSegment(overlay, outer[a], outer[b], color, radius, hidden);
     }
   });
 
   outer.forEach((p, i) => {
     const hidden = Boolean(landmarks[i]?.occluded);
-    const r = hidden ? 0.02 : 0.026;
+    const r = hidden ? 0.011 : 0.014;
     const color = colorFor(i);
     const halo = new THREE.Mesh(
       isRight
-        ? new THREE.CylinderGeometry(r + 0.006, r + 0.006, r * 0.22, 5)
-        : new THREE.SphereGeometry(r + 0.006, 28, 22),
+        ? new THREE.CylinderGeometry(r + 0.0035, r + 0.0035, r * 0.22, 5)
+        : new THREE.SphereGeometry(r + 0.0035, 22, 18),
       overlayMaterial(0xffffff, hidden ? 0.45 : 1),
     );
     halo.position.copy(p);
@@ -137,7 +156,7 @@ function addSkeleton(group, pts, landmarks = [], handedness = "Unknown", compact
     const mark = new THREE.Mesh(
       isRight
         ? new THREE.CylinderGeometry(r, r, r * 0.46, 5)
-        : new THREE.SphereGeometry(r, 28, 22),
+        : new THREE.SphereGeometry(r, 22, 18),
       overlayMaterial(color, hidden ? 0.5 : 1),
     );
     mark.position.copy(p);
@@ -150,7 +169,7 @@ function addSkeleton(group, pts, landmarks = [], handedness = "Unknown", compact
 
 function skinMaterial() {
   return new THREE.MeshPhysicalMaterial({
-    color: 0xb07a58,
+    color: 0xc48a68,
     roughness: 0.52,
     metalness: 0.02,
     clearcoat: 0.12,
@@ -264,7 +283,7 @@ function buildManoHand(pts, meshData, apply, landmarks, handedness) {
   const mesh = new THREE.Mesh(
     geo,
     new THREE.MeshPhysicalMaterial({
-      color: 0xb07a58,
+      color: 0xc48a68,
       roughness: 0.5,
       metalness: 0.02,
       clearcoat: 0.12,
@@ -282,7 +301,7 @@ function buildManoHand(pts, meshData, apply, landmarks, handedness) {
     }),
   );
   group.add(mesh);
-  addSkeleton(group, pts, landmarks, handedness, true);
+  addSkeleton(group, pts, landmarks, handedness);
   return group;
 }
 
@@ -315,7 +334,7 @@ function disposeHand(hand) {
 
 function makeView(container, cameraPos) {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xc5c5c5);
+  scene.background = new THREE.Color(0x161a22);
   const camera = new THREE.PerspectiveCamera(32, 1, 0.01, 20);
   camera.position.copy(cameraPos);
   camera.lookAt(0, 0, 0);

@@ -1,5 +1,5 @@
-import { CONNECTIONS, NAMES, colorFor, boneColor } from "./schema.js?v=31";
-import { predictWilor, wilorToHands } from "./wilor.js?v=31";
+import { CONNECTIONS, NAMES, colorFor, boneColor } from "./schema.js?v=32";
+import { predictWilor, wilorToHands } from "./wilor.js?v=32";
 
 const LOCAL_BASE = new URL("../vendor/mediapipe/", import.meta.url);
 const MODEL = new URL("hand_landmarker.task", LOCAL_BASE).href;
@@ -106,7 +106,7 @@ async function initModel() {
     "Modelo de manos",
   );
   try {
-    const three = await import("./hand3d.js?v=31");
+    const three = await import("./hand3d.js?v=32");
     studio = new three.HandStudio3D();
   } catch (err) {
     console.warn("Vista 3D no disponible", err);
@@ -349,7 +349,7 @@ function drawOverlay(image, landmarks, handedness) {
       isOccluded(landmarks[a]) || isOccluded(landmarks[b]),
     );
   });
-  const r = Math.max(6.4, canvas.width / 108);
+  const r = Math.max(4.6, canvas.width / 150);
   landmarks.forEach((lm, i) => {
     const p = px(lm);
     drawLandmarkShape(p.x, p.y, r, colorFor(i), isRight, isOccluded(lm));
