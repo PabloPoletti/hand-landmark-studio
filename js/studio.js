@@ -411,7 +411,9 @@ wilorBtn.addEventListener("click", async () => {
   if (!lastFile || !lastImage) return;
   wilorBtn.disabled = true;
   try {
-    const result = await predictWilor(lastFile, setStatus);
+    const mpHand = sources.mediapipe?.[0];
+    const hint = mpHand ? handednessOf(mpHand) === "Right" : null;
+    const result = await predictWilor(lastFile, setStatus, hint);
     const hands = wilorToHands(result);
     if (!hands.length) {
       setStatus("WiLoR no encontró manos");

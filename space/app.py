@@ -135,7 +135,45 @@ def as_points(values):
     return points
 
 
-def fit_to_bbox(points_xy, bbox, pad=0.22):
+def as_right(value):
+    if value is None:
+        return True
+    if isinstance(value, (list, tuple)):
+        value = value[0]
+    try:
+        return float(value) >= 0.5
+    except (TypeError, ValueError):
+        return bool(value)
+
+
+def parse_right_hint(value):
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {"left", "izquierda", "l", "false", "0"}:
+            return False
+        if text in {"right", "derecha", "r", "true", "1"}:
+            return True
+        return None
+    return bool(value)
+
+
+def anatomy_is_right(points_2d, points_3d=None):
+    thumb, pinky = points_2d[4], points_2d[17]
+    if abs(float(thumb[0]) - float(pinky[0])) < 8:
+        return None
+    seeing_back = True
+    if points_3d is not None and len(points_3d) > 17:
+        normal = np.cross(points_3d[5] - points_3d[0], points_3d[17] - points_3d[0])
+        seeing_back = float(normal[2]) < 0
+    thumb_left = float(thumb[0]) < float(pinky[0])
+    if seeing_back:
+        return not thumb_left
+    return thumb_left
+
+
+def fit_to_bbox(points_xy, bbox, pad=0.12):
     x1, y1, x2, y2 = [float(v) for v in bbox[:4]]
     cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
     bw, bh = max(x2 - x1, 1.0) * (1.0 + pad), max(y2 - y1, 1.0) * (1.0 + pad)
@@ -145,6 +183,19 @@ def fit_to_bbox(points_xy, bbox, pad=0.22):
     scale = min(bw / sw, bh / sh)
     src = (lo + hi) / 2.0
     return (points_xy - src) * scale + np.array([cx, cy], dtype=np.float64)
+
+
+def mostly_inside(points_xy, bbox):
+    if bbox is None or len(bbox) < 4:
+        return True
+    x1, y1, x2, y2 = [float(v) for v in bbox[:4]]
+    pad_x, pad_y = (x2 - x1) * 0.3, (y2 - y1) * 0.3
+    inside = sum(
+        1
+        for point in points_xy
+        if x1 - pad_x <= point[0] <= x2 + pad_x and y1 - pad_y <= point[1] <= y2 + pad_y
+    )
+    return inside >= 0.55 * len(points_xy)
 
 
 def occlusion_flags(points_3d):
@@ -165,11 +216,42 @@ def occlusion_flags(points_3d):
     return flags
 
 
-def infer(image_rgb):
+def infer(image_rgb, is_right_hint=None):
     img = decode_image(image_rgb)
     bgr = img[:, :, ::-1].copy()
     height, width = bgr.shape[:2]
-    outputs = get_pipe().predict(bgr, hand_conf=0.15)
+    pipe = get_pipe()
+    first = pipe.predict(bgr, hand_conf=0.15)
+    hint = parse_right_hint(is_right_hint)
+    bboxes = []
+    rights = []
+    for out in first:
+        bbox = out.get("hand_bbox")
+        preds = out.get("wilor_preds") or {}
+        keypoints_2d = preds.get("pred_keypoints_2d")
+        keypoints_3d = preds.get("pred_keypoints_3d")
+        yolo_right = as_right(out.get("is_right", 1))
+        chosen = yolo_right
+        if keypoints_2d is not None and keypoints_3d is not None:
+            guessed = anatomy_is_right(as_points(keypoints_2d)[:, :2], as_points(keypoints_3d))
+            if guessed is not None:
+                chosen = guessed
+            elif hint is not None:
+                chosen = hint
+        elif hint is not None:
+            chosen = hint
+        bboxes.append(bbox)
+        rights.append(1.0 if chosen else 0.0)
+
+    if first and any(as_right(out.get("is_right", 1)) != bool(rights[i]) for i, out in enumerate(first)):
+        outputs = pipe.predict_with_bboxes(
+            bgr,
+            np.asarray(bboxes, dtype=np.float32),
+            rights,
+        )
+    else:
+        outputs = first
+
     hands = []
     for index, out in enumerate(outputs):
         preds = out.get("wilor_preds") or {}
@@ -183,12 +265,13 @@ def infer(image_rgb):
         if count < 21:
             continue
         bbox = out.get("hand_bbox")
-        if bbox is not None and len(bbox) >= 4:
+        if bbox is not None and len(bbox) >= 4 and not mostly_inside(points_2d, bbox):
             points_2d = fit_to_bbox(points_2d, bbox)
         hidden = occlusion_flags(points_3d[:count])
+        is_right = as_right(rights[index] if index < len(rights) else out.get("is_right", 1))
         hand = {
             "hand": index + 1,
-            "is_right": bool(out.get("is_right", 1)),
+            "is_right": is_right,
             "bbox": [float(v) for v in bbox[:4]] if bbox is not None else None,
             "landmarks": [
                 {
@@ -232,9 +315,9 @@ def infer(image_rgb):
 
 
 @spaces.GPU(duration=90)
-def predict(image):
+def predict(image, is_right_hint=None):
     try:
-        return json.dumps(infer(image), ensure_ascii=False)
+        return json.dumps(infer(image, is_right_hint=is_right_hint), ensure_ascii=False)
     except Exception as exc:
         return json.dumps(
             {
@@ -287,7 +370,7 @@ def create_app_with_wilor(blocks, *args, **kwargs):
     async def wilor_api(request: Request):
         try:
             body = await request.json()
-            raw = predict(body.get("image"))
+            raw = predict(body.get("image"), body.get("is_right"))
             data = json.loads(raw) if isinstance(raw, str) else raw
             return JSONResponse(data)
         except Exception as exc:
