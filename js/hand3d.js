@@ -63,8 +63,8 @@ function bone(a, b, r0, r1, material) {
   return mesh;
 }
 
-const SKIN_SCALE = 1.45;
-const SURFACE_PAD = 0.034;
+const SKIN_SCALE = 1.85;
+const SURFACE_PAD = 0.014;
 const TIP_PREV = { 4: 3, 8: 7, 12: 11, 16: 15, 20: 19 };
 
 function overlayMaterial(color, opacity = 1) {
@@ -119,7 +119,7 @@ function addSkeleton(group, pts, landmarks = [], handedness = "Unknown") {
   CONNECTIONS.forEach(([a, b]) => {
     const hidden = landmarks[a]?.occluded || landmarks[b]?.occluded;
     const color = colorFor(b === 0 ? a : b);
-    const radius = hidden ? 0.01 : 0.016;
+    const radius = hidden ? 0.011 : 0.018;
     const outline = bone(outer[a], outer[b], radius + 0.007, radius + 0.007, overlayMaterial(0x111111, hidden ? 0.3 : 0.95));
     const mesh = bone(outer[a], outer[b], radius, radius, overlayMaterial(color, hidden ? 0.45 : 1));
     if (outline) {
@@ -174,17 +174,17 @@ function addSkeleton(group, pts, landmarks = [], handedness = "Unknown") {
 
 function skinMaterial() {
   return new THREE.MeshPhysicalMaterial({
-    color: 0xe0b89a,
-    roughness: 0.48,
+    color: 0xe8c2a4,
+    roughness: 0.38,
     metalness: 0,
-    clearcoat: 0.18,
-    clearcoatRoughness: 0.55,
-    sheen: 0.3,
-    sheenColor: new THREE.Color(0xf4d2bc),
+    clearcoat: 0.28,
+    clearcoatRoughness: 0.48,
+    sheen: 0.5,
+    sheenColor: new THREE.Color(0xf7d8c4),
     transparent: true,
-    opacity: 0.5,
-    depthWrite: false,
-    side: THREE.DoubleSide,
+    opacity: 0.62,
+    depthWrite: true,
+    side: THREE.FrontSide,
   });
 }
 
@@ -208,12 +208,16 @@ function addPalm(group, pts, material) {
   const palm = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 20), material);
   palm.position.copy(center);
   palm.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
-  palm.scale.set(across.length() * 0.58, along.length() * 0.46, Math.max(0.075, across.length() * 0.2));
+  palm.scale.set(across.length() * 0.64, along.length() * 0.52, Math.max(0.12, across.length() * 0.3));
   group.add(palm);
 
-  const thenar = new THREE.Mesh(new THREE.SphereGeometry(across.length() * 0.26, 20, 16), material);
+  const thenar = new THREE.Mesh(new THREE.SphereGeometry(across.length() * 0.3, 22, 18), material);
   thenar.position.copy(pts[0].clone().add(pts[1]).add(pts[5]).multiplyScalar(1 / 3));
   group.add(thenar);
+
+  const hypothenar = new THREE.Mesh(new THREE.SphereGeometry(across.length() * 0.24, 22, 18), material);
+  hypothenar.position.copy(pts[0].clone().add(pts[17]).add(pts[13]).multiplyScalar(1 / 3));
+  group.add(hypothenar);
 }
 
 function addFinger(group, chain, radii, material) {
@@ -240,6 +244,24 @@ function buildAnatomicalHand(pts, landmarks, handedness) {
   body.renderOrder = 0;
   const skin = skinMaterial();
   addPalm(body, pts, skin);
+  pts.forEach((p, id) => {
+    const blob = new THREE.Mesh(new THREE.SphereGeometry(radiusForId(id) * 1.12, 22, 18), skin);
+    blob.position.copy(p);
+    body.add(blob);
+  });
+  [
+    [0, 1],
+    [0, 5],
+    [0, 9],
+    [0, 13],
+    [0, 17],
+    [5, 9],
+    [9, 13],
+    [13, 17],
+  ].forEach(([a, b]) => {
+    const mesh = bone(pts[a], pts[b], radiusForId(a), radiusForId(b), skin);
+    if (mesh) body.add(mesh);
+  });
   FINGER_CHAINS.forEach((finger) => {
     const chain = finger.ids.map((id) => pts[id]);
     if (finger.key === "thumb") chain.unshift(pts[0]);
