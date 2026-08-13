@@ -21,18 +21,31 @@ PIPE = None
 MAX_SIDE = 1280
 
 
+def pip_install(*args):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", *args])
+
+
+def ensure_chumpy():
+    if importlib.util.find_spec("chumpy") is not None:
+        return
+    # chumpy's old setup.py breaks HF build isolation; install at runtime.
+    for spec in (
+        ["--no-build-isolation", "chumpy"],
+        ["--no-build-isolation", "git+https://github.com/uyoung-jeong/chumpy.git"],
+    ):
+        try:
+            pip_install(*spec)
+            if importlib.util.find_spec("chumpy") is not None:
+                return
+        except Exception:
+            continue
+    raise ModuleNotFoundError("No module named 'chumpy'")
+
+
 def ensure_wilor():
+    ensure_chumpy()
     if importlib.util.find_spec("wilor_mini") is None:
-        subprocess.check_call(
-            [
-                sys.executable,
-                "-m",
-                "pip",
-                "install",
-                "--no-deps",
-                "git+https://github.com/warmshao/WiLoR-mini",
-            ]
-        )
+        pip_install("--no-deps", "git+https://github.com/warmshao/WiLoR-mini")
     from wilor_mini.pipelines.wilor_hand_pose3d_estimation_pipeline import (
         WiLorHandPose3dEstimationPipeline,
     )
