@@ -87,9 +87,9 @@ async function createLandmarker(HandLandmarker, vision, delegate) {
     baseOptions: { modelAssetPath: MODEL, delegate },
     runningMode: "IMAGE",
     numHands: 2,
-    minHandDetectionConfidence: 0.4,
-    minHandPresenceConfidence: 0.4,
-    minTrackingConfidence: 0.4,
+    minHandDetectionConfidence: 0.2,
+    minHandPresenceConfidence: 0.2,
+    minTrackingConfidence: 0.2,
   });
 }
 
@@ -117,13 +117,26 @@ async function initModel() {
   }
 }
 
-function drawOverlay(image, landmarks) {
-  const maxW = 900;
-  const scale = Math.min(1, maxW / image.width);
-  canvas.width = Math.round(image.width * scale);
-  canvas.height = Math.round(image.height * scale);
+function imageSize(image) {
+  return {
+    width: image.width || image.naturalWidth || 0,
+    height: image.height || image.naturalHeight || 0,
+  };
+}
+
+function drawPhoto(image) {
+  const { width, height } = imageSize(image);
+  if (!width || !height) return;
+  const scale = Math.min(1, 900 / width);
+  canvas.width = Math.round(width * scale);
+  canvas.height = Math.round(height * scale);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+}
+
+function drawOverlay(image, landmarks) {
+  drawPhoto(image);
+  if (!landmarks?.length) return;
 
   const px = (lm) => ({ x: lm.x * canvas.width, y: lm.y * canvas.height });
   ctx.lineWidth = Math.max(2, canvas.width / 280);
@@ -170,18 +183,22 @@ function renderActive() {
 
 function showHands(image, detection) {
   lastImage = image;
+  const { width, height } = imageSize(image);
   lastHands = (detection.landmarks || []).map((landmarks, i) => ({
     landmarks,
     worldLandmarks: detection.worldLandmarks[i],
     handedness: detection.handedness?.[i] || detection.handednesses?.[i],
   }));
 
+  results.hidden = false;
+  drawPhoto(image);
+
   if (!lastHands.length) {
-    results.hidden = true;
     toolbar.hidden = true;
     copyBtn.hidden = true;
-    wilorBtn.hidden = true;
+    wilorBtn.hidden = false;
     emptyMsg.hidden = false;
+    emptyMsg.textContent = `No se detectó ninguna mano en ${width}×${height}. Probá una foto más cercana, con la palma o el dorso bien visibles.`;
     studio?.clear();
     return;
   }
@@ -207,13 +224,25 @@ function showHands(image, detection) {
   renderActive();
 }
 
-function loadImage(src) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = src;
-  });
+async function loadImage(file) {
+  if (typeof createImageBitmap === "function") {
+    try {
+      return await createImageBitmap(file, { imageOrientation: "from-image" });
+    } catch {
+      return createImageBitmap(file);
+    }
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    return await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = url;
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 async function processFile(file) {
@@ -225,20 +254,20 @@ async function processFile(file) {
     return;
   }
   setStatus("Detectando mano…");
-  const url = URL.createObjectURL(file);
   try {
-    const image = await loadImage(url);
+    const image = await loadImage(file);
     const detection = landmarker.detect(image);
     showHands(image, detection);
+    const { width, height } = imageSize(image);
     setStatus(
-      `${lastHands.length} mano${lastHands.length === 1 ? "" : "s"} detectada${lastHands.length === 1 ? "" : "s"}`,
-      true,
+      lastHands.length
+        ? `${lastHands.length} mano${lastHands.length === 1 ? "" : "s"} · ${width}×${height}`
+        : `0 manos · ${width}×${height}`,
+      lastHands.length > 0,
     );
   } catch (err) {
     console.error(err);
     setStatus("No se pudo leer la imagen");
-  } finally {
-    URL.revokeObjectURL(url);
   }
 }
 
