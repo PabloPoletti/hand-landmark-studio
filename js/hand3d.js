@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { CSS2DObject, CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
+import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import { CONNECTIONS, FINGER_CHAINS, colorFor } from "./schema.js";
 
 const Y_UP = new THREE.Vector3(0, 1, 0);
@@ -68,7 +68,7 @@ function addSkeleton(group, pts, landmarks = []) {
     const mesh = bone(
       pts[a],
       pts[b],
-      hidden ? 0.008 : 0.012,
+      hidden ? 0.007 : 0.011,
       new THREE.MeshBasicMaterial({
         color: colorFor(b === 0 ? a : b),
         transparent: hidden,
@@ -93,14 +93,6 @@ function addSkeleton(group, pts, landmarks = []) {
     );
     ball.position.copy(p);
     group.add(ball);
-
-    const el = document.createElement("div");
-    el.className = "label3d" + (hidden ? " occluded" : "");
-    el.textContent = hidden ? `${i}*` : String(i);
-    const label = new CSS2DObject(el);
-    label.position.copy(p);
-    label.center.set(0.5, 1.4);
-    group.add(label);
   });
 }
 
@@ -119,32 +111,20 @@ function buildManoHand(pts, meshData, apply, landmarks) {
   geo.computeVertexNormals();
 
   const skin = new THREE.MeshPhysicalMaterial({
-    color: 0xcbb7a6,
-    roughness: 0.34,
-    metalness: 0.02,
-    clearcoat: 0.22,
-    clearcoatRoughness: 0.4,
-    sheen: 0.4,
-    sheenRoughness: 0.55,
-    sheenColor: new THREE.Color(0xf0d8c6),
+    color: 0xd4b39a,
+    roughness: 0.45,
+    metalness: 0.0,
+    clearcoat: 0.28,
+    clearcoatRoughness: 0.5,
+    sheen: 0.5,
+    sheenRoughness: 0.6,
+    sheenColor: new THREE.Color(0xf3d4c0),
     transparent: true,
-    opacity: 0.52,
+    opacity: 0.88,
     side: THREE.DoubleSide,
-    depthWrite: false,
+    depthWrite: true,
   });
   group.add(new THREE.Mesh(geo, skin));
-  const inner = new THREE.Mesh(
-    geo.clone(),
-    new THREE.MeshPhysicalMaterial({
-      color: 0xb79d8a,
-      roughness: 0.5,
-      transparent: true,
-      opacity: 0.16,
-      side: THREE.FrontSide,
-      depthWrite: false,
-    }),
-  );
-  group.add(inner);
   addSkeleton(group, pts, landmarks);
   return group;
 }

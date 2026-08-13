@@ -2,6 +2,8 @@ import base64
 import importlib.util
 import io
 import json
+import os
+import pickle
 import subprocess
 import sys
 import traceback
@@ -98,6 +100,25 @@ def get_pipe():
     if PIPE is None:
         PIPE = ensure_wilor()(device=DEVICE, dtype=DTYPE, verbose=False)
     return PIPE
+
+
+def load_mano_faces():
+    mano = getattr(get_pipe().wilor_model, "mano", None)
+    for attr in ("faces", "faces_tensor", "f"):
+        raw = getattr(mano, attr, None)
+        if raw is None:
+            continue
+        if hasattr(raw, "detach"):
+            raw = raw.detach().cpu()
+        return np.asarray(raw).astype(int).tolist()
+    try:
+        root = os.path.dirname(importlib.util.find_spec("wilor_mini").origin)
+        path = os.path.join(root, "pretrained_models", "MANO_RIGHT.pkl")
+        with open(path, "rb") as handle:
+            data = pickle.load(handle, encoding="latin1")
+        return np.asarray(data["f"]).astype(int).tolist()
+    except Exception:
+        return None
 
 
 def decode_image(payload):
@@ -259,14 +280,16 @@ def infer(image_rgb, is_right_hint=None):
         keypoints_3d = preds.get("pred_keypoints_3d")
         if keypoints_2d is None or keypoints_3d is None:
             continue
-        points_2d = as_points(keypoints_2d)[:, :2]
         points_3d = as_points(keypoints_3d)
-        count = min(21, len(points_2d), len(points_3d))
+        count = min(21, len(points_3d))
         if count < 21:
             continue
+        # Camera-space XY matches the 3D pose; drop the weak-perspective 2D
+        # that was landing off the hand.
+        points_2d = points_3d[:count, :2].copy()
         bbox = out.get("hand_bbox")
-        if bbox is not None and len(bbox) >= 4 and not mostly_inside(points_2d, bbox):
-            points_2d = fit_to_bbox(points_2d, bbox)
+        if bbox is not None and len(bbox) >= 4:
+            points_2d = fit_to_bbox(points_2d, bbox, pad=0.08)
         hidden = occlusion_flags(points_3d[:count])
         is_right = as_right(rights[index] if index < len(rights) else out.get("is_right", 1))
         hand = {
@@ -294,14 +317,7 @@ def infer(image_rgb, is_right_hint=None):
                 [float(row[0]), float(row[1]), float(row[2])] for row in points_v
             ]
         hands.append(hand)
-    faces = None
-    try:
-        mano = getattr(get_pipe().wilor_model, "mano", None)
-        raw_faces = getattr(mano, "faces", None)
-        if raw_faces is not None:
-            faces = np.asarray(raw_faces).astype(int).tolist()
-    except Exception:
-        faces = None
+    faces = load_mano_faces()
     payload = {
         "hands": hands,
         "faces": faces,

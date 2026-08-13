@@ -321,10 +321,25 @@ function renderHandChips() {
   });
 }
 
+function pinOverlayToMediaPipe(hands) {
+  const mp = sources.mediapipe?.[0];
+  if (!mp?.landmarks?.length || mp.landmarks.length !== 21) return hands;
+  return hands.map((hand) => ({
+    ...hand,
+    landmarks: mp.landmarks.map((lm, i) => ({
+      x: lm.x,
+      y: lm.y,
+      z: lm.z ?? 0,
+      occluded: Boolean(hand.landmarks[i]?.occluded),
+    })),
+  }));
+}
+
 function showHands(image, detection, source = "mediapipe") {
   lastImage = image;
   const { width, height } = imageSize(image);
-  const hands = detectionToHands(detection);
+  let hands = detectionToHands(detection);
+  if (source === "wilor") hands = pinOverlayToMediaPipe(hands);
   sources[source] = hands;
   activeSource = source;
   lastHands = hands;
