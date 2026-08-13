@@ -5,9 +5,9 @@ timm
 einops
 ultralytics==8.1.34
 opencv-python-headless
-huggingface_hub
+huggingface_hub==0.25.2
 scikit-image
 roma
 numpy
 gradio==4.44.1
-spaces
+spaces==0.51.1

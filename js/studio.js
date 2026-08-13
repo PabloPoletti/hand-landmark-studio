@@ -87,9 +87,9 @@ async function createLandmarker(HandLandmarker, vision, delegate) {
     baseOptions: { modelAssetPath: MODEL, delegate },
     runningMode: "IMAGE",
     numHands: 2,
-    minHandDetectionConfidence: 0.2,
-    minHandPresenceConfidence: 0.2,
-    minTrackingConfidence: 0.2,
+    minHandDetectionConfidence: 0.05,
+    minHandPresenceConfidence: 0.05,
+    minTrackingConfidence: 0.05,
   });
 }
 
@@ -122,6 +122,22 @@ function imageSize(image) {
     width: image.width || image.naturalWidth || 0,
     height: image.height || image.naturalHeight || 0,
   };
+}
+
+function toDetectCanvas(image) {
+  const { width, height } = imageSize(image);
+  const scale = Math.min(1, 1280 / Math.max(width, height, 1));
+  const detectCanvas = document.createElement("canvas");
+  detectCanvas.width = Math.max(1, Math.round(width * scale));
+  detectCanvas.height = Math.max(1, Math.round(height * scale));
+  detectCanvas.getContext("2d", { willReadFrequently: true }).drawImage(
+    image,
+    0,
+    0,
+    detectCanvas.width,
+    detectCanvas.height,
+  );
+  return detectCanvas;
 }
 
 function drawPhoto(image) {
@@ -256,7 +272,7 @@ async function processFile(file) {
   setStatus("Detectando mano…");
   try {
     const image = await loadImage(file);
-    const detection = landmarker.detect(image);
+    const detection = landmarker.detect(toDetectCanvas(image));
     showHands(image, detection);
     const { width, height } = imageSize(image);
     setStatus(

@@ -2,37 +2,40 @@ import importlib.util
 import subprocess
 import sys
 
-if importlib.util.find_spec("wilor_mini") is None:
-    subprocess.check_call(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "--no-deps",
-            "git+https://github.com/warmshao/WiLoR-mini",
-        ]
-    )
-
 import numpy as np
 import torch
 import gradio as gr
 import spaces
-from wilor_mini.pipelines.wilor_hand_pose3d_estimation_pipeline import (
-    WiLorHandPose3dEstimationPipeline,
-)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 DTYPE = torch.float16 if DEVICE.type == "cuda" else torch.float32
 PIPE = None
 
 
+def ensure_wilor():
+    if importlib.util.find_spec("wilor_mini") is None:
+        subprocess.check_call(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--no-deps",
+                "git+https://github.com/warmshao/WiLoR-mini",
+            ]
+        )
+    from wilor_mini.pipelines.wilor_hand_pose3d_estimation_pipeline import (
+        WiLorHandPose3dEstimationPipeline,
+    )
+
+    return WiLorHandPose3dEstimationPipeline
+
+
 def get_pipe():
     global PIPE
     if PIPE is None:
-        PIPE = WiLorHandPose3dEstimationPipeline(
-            device=DEVICE, dtype=DTYPE, verbose=False
-        )
+        pipeline_cls = ensure_wilor()
+        PIPE = pipeline_cls(device=DEVICE, dtype=DTYPE, verbose=False)
     return PIPE
 
 
