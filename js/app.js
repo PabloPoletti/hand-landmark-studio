@@ -1,20 +1,18 @@
 import { CONNECTIONS, NAMES, colorFor } from "./schema.js";
 import { predictWilor, wilorToHands } from "./wilor.js";
 
-const MODEL =
-  "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
+const LOCAL_BASE = new URL("../vendor/mediapipe/", import.meta.url);
+const MODEL = new URL("hand_landmarker.task", LOCAL_BASE).href;
 const MEDIAPIPE_SOURCES = [
   {
-    module: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/vision_bundle.mjs",
-    wasm: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm",
+    label: "local",
+    module: new URL("vision_bundle.mjs", LOCAL_BASE).href,
+    wasm: new URL("wasm", LOCAL_BASE).href,
   },
   {
-    module: "https://unpkg.com/@mediapipe/tasks-vision@0.10.22/vision_bundle.mjs",
-    wasm: "https://unpkg.com/@mediapipe/tasks-vision@0.10.22/wasm",
-  },
-  {
-    module: "https://esm.sh/@mediapipe/tasks-vision@0.10.22",
-    wasm: "https://esm.sh/@mediapipe/tasks-vision@0.10.22/wasm",
+    label: "unpkg",
+    module: "https://unpkg.com/@mediapipe/tasks-vision@0.10.32/vision_bundle.mjs",
+    wasm: "https://unpkg.com/@mediapipe/tasks-vision@0.10.32/wasm",
   },
 ];
 
@@ -42,17 +40,39 @@ function setStatus(text, ok = false) {
   statusEl.style.borderColor = ok ? "#4ade80" : "";
 }
 
+function withTimeout(promise, ms, label) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} tardó más de ${ms / 1000}s`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
 async function loadMediapipe() {
   let lastError = null;
   for (const source of MEDIAPIPE_SOURCES) {
     try {
-      const mod = await import(source.module);
+      setStatus(`Cargando motor (${source.label})…`);
+      const mod = await withTimeout(import(source.module), 15000, source.label);
       const HandLandmarker = mod.HandLandmarker;
       const FilesetResolver = mod.FilesetResolver;
       if (!HandLandmarker || !FilesetResolver) {
         throw new Error("El bundle no exporta HandLandmarker");
       }
-      const vision = await FilesetResolver.forVisionTasks(source.wasm);
+      setStatus(`Cargando WASM (${source.label})…`);
+      const vision = await withTimeout(
+        FilesetResolver.forVisionTasks(source.wasm),
+        20000,
+        `WASM ${source.label}`,
+      );
       return { HandLandmarker, vision };
     } catch (err) {
       lastError = err;
@@ -76,11 +96,12 @@ async function createLandmarker(HandLandmarker, vision, delegate) {
 async function initModel() {
   setStatus("Cargando MediaPipe…");
   const { HandLandmarker, vision } = await loadMediapipe();
-  try {
-    landmarker = await createLandmarker(HandLandmarker, vision, "GPU");
-  } catch {
-    landmarker = await createLandmarker(HandLandmarker, vision, "CPU");
-  }
+  setStatus("Preparando el modelo de manos…");
+  landmarker = await withTimeout(
+    createLandmarker(HandLandmarker, vision, "CPU"),
+    25000,
+    "Modelo de manos",
+  );
   try {
     const three = await import("./hand3d.js");
     studio = new three.HandStudio3D();
