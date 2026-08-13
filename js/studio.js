@@ -162,6 +162,26 @@ function drawPhoto(image) {
   return fit;
 }
 
+function isOccluded(lm) {
+  if (!lm) return false;
+  if (typeof lm.occluded === "boolean") return lm.occluded;
+  if (typeof lm.visibility === "number") return lm.visibility < 0.5;
+  return false;
+}
+
+function addOcclusion(landmarks, world) {
+  const src = world || landmarks;
+  const palm = [0, 5, 9, 13, 17];
+  if (!src?.[0] || landmarks.some((lm) => typeof lm.occluded === "boolean")) {
+    return landmarks;
+  }
+  const palmZ = palm.reduce((sum, id) => sum + (src[id]?.z ?? 0), 0) / palm.length;
+  return landmarks.map((lm, i) => ({
+    ...lm,
+    occluded: !palm.includes(i) && (src[i]?.z ?? 0) > palmZ + 0.012,
+  }));
+}
+
 function drawOverlay(image, landmarks) {
   const fit = drawPhoto(image);
   if (!fit || !landmarks?.length) return;
@@ -169,42 +189,65 @@ function drawOverlay(image, landmarks) {
   const px = (lm) => ({ x: fit.x + lm.x * fit.w, y: fit.y + lm.y * fit.h });
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  ctx.lineWidth = Math.max(2.5, canvas.width / 220);
+  const stroke = Math.max(2.5, canvas.width / 220);
   CONNECTIONS.forEach(([a, b]) => {
     const pa = px(landmarks[a]);
     const pb = px(landmarks[b]);
+    const hidden = isOccluded(landmarks[a]) || isOccluded(landmarks[b]);
+    ctx.globalAlpha = hidden ? 0.4 : 1;
+    ctx.setLineDash(hidden ? [7, 5] : []);
+    ctx.lineWidth = stroke;
     ctx.strokeStyle = colorFor(b === 0 ? a : b);
     ctx.beginPath();
     ctx.moveTo(pa.x, pa.y);
     ctx.lineTo(pb.x, pb.y);
     ctx.stroke();
   });
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
 
   const r = Math.max(3.5, canvas.width / 160);
   const font = Math.max(11, canvas.width / 64);
   landmarks.forEach((lm, i) => {
     const p = px(lm);
+    const hidden = isOccluded(lm);
+    ctx.globalAlpha = hidden ? 0.55 : 1;
     ctx.beginPath();
     ctx.arc(p.x, p.y, r + 1.4, 0, Math.PI * 2);
     ctx.fillStyle = "#fff";
     ctx.fill();
     ctx.beginPath();
     ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = colorFor(i);
-    ctx.fill();
+    if (hidden) {
+      ctx.strokeStyle = colorFor(i);
+      ctx.lineWidth = 2;
+      ctx.setLineDash([2, 2]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(p.x - r * 0.55, p.y - r * 0.55);
+      ctx.lineTo(p.x + r * 0.55, p.y + r * 0.55);
+      ctx.moveTo(p.x + r * 0.55, p.y - r * 0.55);
+      ctx.lineTo(p.x - r * 0.55, p.y + r * 0.55);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = colorFor(i);
+      ctx.fill();
+    }
 
     ctx.font = `700 ${font}px Segoe UI, sans-serif`;
     ctx.textAlign = "left";
     ctx.textBaseline = "bottom";
-    const label = String(i);
+    const label = hidden ? `${i}*` : String(i);
     const tx = p.x + r + 2;
     const ty = p.y - r;
     ctx.lineWidth = 3;
     ctx.strokeStyle = "rgba(0,0,0,0.65)";
     ctx.strokeText(label, tx, ty);
-    ctx.fillStyle = "#fff";
+    ctx.fillStyle = hidden ? "#fde68a" : "#fff";
     ctx.fillText(label, tx, ty);
   });
+  ctx.globalAlpha = 1;
 }
 
 function handednessOf(hand) {
@@ -214,10 +257,15 @@ function handednessOf(hand) {
 function renderActive() {
   const hand = lastHands[activeIndex];
   if (!hand || !lastImage) return;
-  drawOverlay(lastImage, hand.landmarks);
-  studio?.setHand(hand.worldLandmarks, handednessOf(hand), hand.mesh);
+  const landmarks = addOcclusion(hand.landmarks, hand.worldLandmarks);
+  hand.landmarks = landmarks;
+  drawOverlay(lastImage, landmarks);
+  studio?.setHand(hand.worldLandmarks, handednessOf(hand), hand.mesh, landmarks);
   const label = handednessOf(hand) === "Left" ? "izquierda" : "derecha";
-  note.textContent = `Mano ${activeIndex + 1} · ${label} · 21 landmarks`;
+  const hidden = landmarks.filter(isOccluded).length;
+  note.textContent = `Mano ${activeIndex + 1} · ${label} · 21 landmarks${
+    hidden ? ` · ${hidden} ocluidos (*)` : ""
+  }`;
   copyBtn.hidden = false;
   wilorBtn.hidden = false;
 }
@@ -363,7 +411,9 @@ wilorBtn.addEventListener("click", async () => {
   if (!lastFile || !lastImage) return;
   wilorBtn.disabled = true;
   try {
-    const result = await predictWilor(lastFile, setStatus);
+    const mpHand = sources.mediapipe?.[0];
+    const hint = mpHand ? handednessOf(mpHand) === "Right" : null;
+    const result = await predictWilor(lastFile, setStatus, hint);
     const hands = wilorToHands(result);
     if (!hands.length) {
       setStatus("WiLoR no encontró manos");

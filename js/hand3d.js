@@ -55,35 +55,48 @@ function bone(a, b, radius, material) {
   const dir = new THREE.Vector3().subVectors(b, a);
   const len = dir.length();
   if (len < 1e-5) return null;
-  const geo = new THREE.CylinderGeometry(radius, radius, len, 10, 1, false);
+  const geo = new THREE.CylinderGeometry(radius, radius, len, 18, 1, false);
   const mesh = new THREE.Mesh(geo, material);
   mesh.position.copy(a).add(b).multiplyScalar(0.5);
   mesh.quaternion.setFromUnitVectors(Y_UP, dir.clone().normalize());
   return mesh;
 }
 
-function addSkeleton(group, pts) {
+function addSkeleton(group, pts, landmarks = []) {
   CONNECTIONS.forEach(([a, b]) => {
+    const hidden = landmarks[a]?.occluded || landmarks[b]?.occluded;
     const mesh = bone(
       pts[a],
       pts[b],
-      0.012,
-      new THREE.MeshBasicMaterial({ color: colorFor(b === 0 ? a : b) }),
+      hidden ? 0.008 : 0.012,
+      new THREE.MeshBasicMaterial({
+        color: colorFor(b === 0 ? a : b),
+        transparent: hidden,
+        opacity: hidden ? 0.35 : 1,
+      }),
     );
     if (mesh) group.add(mesh);
   });
 
   pts.forEach((p, i) => {
+    const hidden = Boolean(landmarks[i]?.occluded);
     const ball = new THREE.Mesh(
-      new THREE.SphereGeometry(0.02, 12, 10),
-      new THREE.MeshBasicMaterial({ color: colorFor(i) }),
+      new THREE.SphereGeometry(hidden ? 0.015 : 0.019, 20, 16),
+      new THREE.MeshStandardMaterial({
+        color: colorFor(i),
+        roughness: 0.32,
+        metalness: 0.05,
+        transparent: hidden,
+        opacity: hidden ? 0.38 : 1,
+        wireframe: hidden,
+      }),
     );
     ball.position.copy(p);
     group.add(ball);
 
     const el = document.createElement("div");
-    el.className = "label3d";
-    el.textContent = String(i);
+    el.className = "label3d" + (hidden ? " occluded" : "");
+    el.textContent = hidden ? `${i}*` : String(i);
     const label = new CSS2DObject(el);
     label.position.copy(p);
     label.center.set(0.5, 1.4);
@@ -91,7 +104,7 @@ function addSkeleton(group, pts) {
   });
 }
 
-function buildManoHand(pts, meshData, apply) {
+function buildManoHand(pts, meshData, apply, landmarks) {
   const group = new THREE.Group();
   const verts = meshData.vertices.map((v) => apply(v));
   const geo = new THREE.BufferGeometry();
@@ -105,21 +118,34 @@ function buildManoHand(pts, meshData, apply) {
   geo.setIndex(meshData.faces.flat());
   geo.computeVertexNormals();
 
-  group.add(
-    new THREE.Mesh(
-      geo,
-      new THREE.MeshPhysicalMaterial({
-        color: 0xc9c4bc,
-        roughness: 0.42,
-        metalness: 0,
-        transparent: true,
-        opacity: 0.4,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      }),
-    ),
+  const skin = new THREE.MeshPhysicalMaterial({
+    color: 0xcbb7a6,
+    roughness: 0.34,
+    metalness: 0.02,
+    clearcoat: 0.22,
+    clearcoatRoughness: 0.4,
+    sheen: 0.4,
+    sheenRoughness: 0.55,
+    sheenColor: new THREE.Color(0xf0d8c6),
+    transparent: true,
+    opacity: 0.52,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  group.add(new THREE.Mesh(geo, skin));
+  const inner = new THREE.Mesh(
+    geo.clone(),
+    new THREE.MeshPhysicalMaterial({
+      color: 0xb79d8a,
+      roughness: 0.5,
+      transparent: true,
+      opacity: 0.16,
+      side: THREE.FrontSide,
+      depthWrite: false,
+    }),
   );
-  addSkeleton(group, pts);
+  group.add(inner);
+  addSkeleton(group, pts, landmarks);
   return group;
 }
 
@@ -159,14 +185,15 @@ function palmGeometry(pts) {
   return geo;
 }
 
-function buildGhostHand(pts) {
+function buildGhostHand(pts, landmarks) {
   const group = new THREE.Group();
   const skin = new THREE.MeshPhysicalMaterial({
-    color: 0xd9d4cc,
-    roughness: 0.55,
-    metalness: 0,
+    color: 0xcbb7a6,
+    roughness: 0.4,
+    metalness: 0.02,
+    clearcoat: 0.12,
     transparent: true,
-    opacity: 0.28,
+    opacity: 0.36,
     side: THREE.DoubleSide,
     depthWrite: false,
   });
@@ -195,7 +222,7 @@ function buildGhostHand(pts) {
     }
   });
 
-  addSkeleton(group, pts);
+  addSkeleton(group, pts, landmarks);
   return group;
 }
 
@@ -217,8 +244,15 @@ function makeView(container, cameraPos) {
   camera.position.copy(cameraPos);
   camera.lookAt(0, 0, 0);
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  const renderer = new THREE.WebGLRenderer({
+    antialias: true,
+    alpha: false,
+    powerPreference: "high-performance",
+  });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.12;
   container.appendChild(renderer.domElement);
 
   const labels = new CSS2DRenderer();
@@ -233,10 +267,17 @@ function makeView(container, cameraPos) {
   controls.minDistance = 1.4;
   controls.maxDistance = 5;
 
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8a8a, 1.15));
-  const key = new THREE.DirectionalLight(0xffffff, 0.7);
-  key.position.set(1.4, 2.2, 1.8);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.28));
+  scene.add(new THREE.HemisphereLight(0xf7f1e8, 0x8b8680, 0.8));
+  const key = new THREE.DirectionalLight(0xfff7ee, 1.05);
+  key.position.set(1.6, 2.4, 2.0);
   scene.add(key);
+  const fill = new THREE.DirectionalLight(0xd7e4ff, 0.42);
+  fill.position.set(-2.1, 0.5, 0.9);
+  scene.add(fill);
+  const rim = new THREE.DirectionalLight(0xfff1dc, 0.5);
+  rim.position.set(-0.3, 1.1, -2.1);
+  scene.add(rim);
 
   return { scene, camera, renderer, labels, controls, hand: null };
 }
@@ -276,7 +317,7 @@ export class HandStudio3D {
     });
   }
 
-  setHand(worldLandmarks, handedness, mesh) {
+  setHand(worldLandmarks, handedness, mesh, landmarks = []) {
     const aligned = alignmentFromLandmarks(worldLandmarks, handedness);
     const hasMesh = mesh?.vertices?.length && mesh?.faces?.length;
     Object.values(this.views).forEach((v) => {
@@ -285,8 +326,8 @@ export class HandStudio3D {
         disposeHand(v.hand);
       }
       v.hand = hasMesh
-        ? buildManoHand(aligned.pts, mesh, aligned.apply)
-        : buildGhostHand(aligned.pts);
+        ? buildManoHand(aligned.pts, mesh, aligned.apply, landmarks)
+        : buildGhostHand(aligned.pts, landmarks);
       v.scene.add(v.hand);
     });
     this.resize();

@@ -193,6 +193,13 @@ footer {
   color: #c9d3e3;
 }
 
+.legend {
+  margin: 4px 0 0;
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .frame {
   position: relative;
   aspect-ratio: 1;
@@ -228,6 +235,12 @@ footer {
   text-align: center;
   pointer-events: none;
   user-select: none;
+}
+
+.label3d.occluded {
+  background: rgba(253, 230, 138, 0.9);
+  color: #78350f;
+  opacity: 0.75;
 }
 
 footer {
