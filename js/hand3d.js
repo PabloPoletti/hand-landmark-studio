@@ -63,6 +63,23 @@ function bone(a, b, r0, r1, material) {
   return mesh;
 }
 
+const SKIN_SCALE = 1.45;
+const SURFACE_PAD = 0.034;
+const TIP_PREV = { 4: 3, 8: 7, 12: 11, 16: 15, 20: 19 };
+
+function overlayMaterial(color, opacity = 1) {
+  const mat = new THREE.MeshBasicMaterial({
+    color,
+    transparent: opacity < 1,
+    opacity,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  mat.renderOrder = 20;
+  return mat;
+}
+
 function palmNormal(pts) {
   const n = new THREE.Vector3().crossVectors(
     pts[5].clone().sub(pts[0]),
@@ -72,95 +89,87 @@ function palmNormal(pts) {
   return n.normalize();
 }
 
+function radiusForId(id) {
+  if (id === 0) return 0.09;
+  for (const finger of FINGER_CHAINS) {
+    const idx = finger.ids.indexOf(id);
+    if (idx >= 0) return finger.radii[idx] * SKIN_SCALE;
+  }
+  return 0.05;
+}
+
+function surfacePoints(pts, normal) {
+  return pts.map((p, id) => {
+    const dir = normal.clone();
+    const prev = TIP_PREV[id];
+    if (prev != null) {
+      dir.add(pts[id].clone().sub(pts[prev]).normalize().multiplyScalar(0.75)).normalize();
+    }
+    return p.clone().add(dir.multiplyScalar(radiusForId(id) + SURFACE_PAD));
+  });
+}
+
 function addSkeleton(group, pts, landmarks = [], handedness = "Unknown") {
   const isRight = handedness === "Right";
   const normal = palmNormal(pts);
+  const outer = surfacePoints(pts, normal);
+  const overlay = new THREE.Group();
+  overlay.renderOrder = 20;
 
   CONNECTIONS.forEach(([a, b]) => {
     const hidden = landmarks[a]?.occluded || landmarks[b]?.occluded;
     const color = colorFor(b === 0 ? a : b);
-    const radius = hidden ? 0.012 : 0.018;
-    const outline = bone(
-      pts[a],
-      pts[b],
-      radius + 0.008,
-      radius + 0.008,
-      new THREE.MeshBasicMaterial({
-        color: 0x111111,
-        transparent: hidden,
-        opacity: hidden ? 0.28 : 0.85,
-        depthTest: false,
-      }),
-    );
-    const mesh = bone(
-      pts[a],
-      pts[b],
-      radius,
-      radius,
-      new THREE.MeshBasicMaterial({
-        color,
-        transparent: hidden,
-        opacity: hidden ? 0.4 : 1,
-        depthTest: false,
-      }),
-    );
-    if (outline) group.add(outline);
-    if (mesh) group.add(mesh);
+    const radius = hidden ? 0.01 : 0.016;
+    const outline = bone(outer[a], outer[b], radius + 0.007, radius + 0.007, overlayMaterial(0x111111, hidden ? 0.3 : 0.95));
+    const mesh = bone(outer[a], outer[b], radius, radius, overlayMaterial(color, hidden ? 0.45 : 1));
+    if (outline) {
+      outline.renderOrder = 20;
+      overlay.add(outline);
+    }
+    if (mesh) {
+      mesh.renderOrder = 21;
+      overlay.add(mesh);
+    }
   });
 
-  pts.forEach((p, i) => {
+  outer.forEach((p, i) => {
     const hidden = Boolean(landmarks[i]?.occluded);
-    const r = hidden ? 0.026 : 0.032;
+    const r = hidden ? 0.028 : 0.038;
     const color = colorFor(i);
-    const material = new THREE.MeshStandardMaterial({
-      color,
-      roughness: 0.28,
-      metalness: 0.04,
-      transparent: hidden,
-      opacity: hidden ? 0.42 : 1,
-      wireframe: hidden,
-      depthTest: false,
-    });
     let mark;
     if (isRight) {
-      mark = new THREE.Mesh(new THREE.CylinderGeometry(r, r, r * 0.42, 5), material);
+      mark = new THREE.Mesh(
+        new THREE.CylinderGeometry(r, r, r * 0.46, 5),
+        overlayMaterial(color, hidden ? 0.45 : 1),
+      );
       mark.quaternion.setFromUnitVectors(Y_UP, normal);
       const rim = new THREE.Mesh(
-        new THREE.CylinderGeometry(r + 0.006, r + 0.006, r * 0.22, 5),
-        new THREE.MeshBasicMaterial({
-          color: 0xffffff,
-          depthTest: false,
-          transparent: hidden,
-          opacity: hidden ? 0.45 : 1,
-        }),
+        new THREE.CylinderGeometry(r + 0.008, r + 0.008, r * 0.2, 5),
+        overlayMaterial(0xffffff, hidden ? 0.45 : 1),
       );
       mark.add(rim);
     } else {
-      const halo = new THREE.Mesh(
-        new THREE.SphereGeometry(r + 0.007, 22, 18),
-        new THREE.MeshBasicMaterial({
-          color: 0x111111,
-          depthTest: false,
-          transparent: hidden,
-          opacity: hidden ? 0.35 : 0.9,
-        }),
-      );
-      mark = new THREE.Mesh(new THREE.SphereGeometry(r, 22, 18), material);
+      const halo = new THREE.Mesh(new THREE.SphereGeometry(r + 0.008, 24, 18), overlayMaterial(0x111111, hidden ? 0.4 : 1));
       halo.position.copy(p);
-      group.add(halo);
+      halo.renderOrder = 22;
+      overlay.add(halo);
+      mark = new THREE.Mesh(new THREE.SphereGeometry(r, 24, 18), overlayMaterial(color, hidden ? 0.45 : 1));
     }
     mark.position.copy(p);
-    group.add(mark);
+    mark.renderOrder = 23;
+    overlay.add(mark);
 
     const el = document.createElement("div");
     el.className = hidden ? "label3d occluded" : "label3d";
     el.textContent = hidden ? `${i}*` : String(i);
     const label = new CSS2DObject(el);
     label.position.copy(p);
-    label.position.x += 0.045;
-    label.position.y += 0.03;
-    group.add(label);
+    label.position.x += 0.05;
+    label.position.y += 0.035;
+    overlay.add(label);
   });
+
+  group.add(overlay);
 }
 
 function skinMaterial() {
@@ -173,7 +182,7 @@ function skinMaterial() {
     sheen: 0.3,
     sheenColor: new THREE.Color(0xf4d2bc),
     transparent: true,
-    opacity: 0.38,
+    opacity: 0.5,
     depthWrite: false,
     side: THREE.DoubleSide,
   });
@@ -227,15 +236,18 @@ function addFinger(group, chain, radii, material) {
 
 function buildAnatomicalHand(pts, landmarks, handedness) {
   const group = new THREE.Group();
+  const body = new THREE.Group();
+  body.renderOrder = 0;
   const skin = skinMaterial();
-  addPalm(group, pts, skin);
+  addPalm(body, pts, skin);
   FINGER_CHAINS.forEach((finger) => {
     const chain = finger.ids.map((id) => pts[id]);
     if (finger.key === "thumb") chain.unshift(pts[0]);
-    const radii = finger.radii.map((r) => r * 1.7);
+    const radii = finger.radii.map((r) => r * SKIN_SCALE);
     if (finger.key === "thumb") radii.unshift(radii[0] * 1.15);
-    addFinger(group, chain, radii, skin);
+    addFinger(body, chain, radii, skin);
   });
+  group.add(body);
   addSkeleton(group, pts, landmarks, handedness);
   return group;
 }
