@@ -1,0 +1,14 @@
+torch>=2.0,<=2.5
+torchvision>=0.15.1
+smplx==0.1.28
+timm
+einops
+ultralytics==8.1.34
+opencv-python-headless
+huggingface_hub
+scikit-image
+roma
+numpy
+gradio==4.44.1
+git+https://github.com/warmshao/WiLoR-mini
+git+https://github.com/mattloper/chumpy

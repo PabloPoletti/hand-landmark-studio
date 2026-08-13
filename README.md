@@ -31,3 +31,14 @@ npx --yes serve .
 ## GitHub Pages
 
 El sitio se sirve desde la rama `main`, carpeta raíz.
+
+## Backend WiLoR (opcional, Hugging Face)
+
+MediaPipe corre solo. El botón **Refinar con WiLoR** llama a un [Space](https://huggingface.co/docs/hub/spaces-overview) gratis.
+
+1. Creá una cuenta en [huggingface.co](https://huggingface.co/join) (gratis).
+2. En [New Space](https://huggingface.co/new-space) elegí Gradio, Python 3.10, hardware **CPU basic**.
+3. Subí los archivos de `space/` (`app.py`, `requirements.txt`, `README.md`).
+4. Cuando el Space esté `Running`, copiá la URL `https://xxxxx.hf.space` en `js/config.js`.
+
+La primera inferencia tarda porque descarga los pesos. Después, cada foto puede llevar 10–40 s en CPU.

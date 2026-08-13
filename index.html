@@ -23,6 +23,9 @@
       </div>
       <div class="meta">
         <span id="engine-status" class="pill">Cargando modelo…</span>
+        <button id="wilor-btn" class="ghost" type="button" hidden>
+          Refinar con WiLoR
+        </button>
         <button id="copy-json" class="ghost" type="button" hidden>
           Copiar JSON 21 pts
         </button>
@@ -70,10 +73,12 @@
     </p>
 
     <footer>
-      Motor en el navegador:
-      <a href="https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker" target="_blank" rel="noreferrer">MediaPipe Hand Landmarker</a>
-      · mismo esquema 0–20 que Blueprint.
-      WiLoR-mini no corre en GitHub Pages (PyTorch + MANO).
+      Instantáneo:
+      <a href="https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker" target="_blank" rel="noreferrer">MediaPipe</a>
+      en el navegador.
+      Opcional:
+      <a href="https://huggingface.co/spaces" target="_blank" rel="noreferrer">WiLoR-mini en Hugging Face</a>
+      (gratis, más lento, mesh 3D).
     </footer>
 
     <script type="module" src="js/app.js"></script>

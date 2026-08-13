@@ -1,6 +1,7 @@
 import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/+esm";
 import { CONNECTIONS, NAMES, colorFor } from "./schema.js";
 import { HandStudio3D } from "./hand3d.js";
+import { predictWilor, wilorToHands } from "./wilor.js";
 
 const MODEL =
   "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
@@ -15,12 +16,14 @@ const switcher = document.getElementById("hand-switcher");
 const note = document.getElementById("detect-note");
 const emptyMsg = document.getElementById("empty-msg");
 const copyBtn = document.getElementById("copy-json");
+const wilorBtn = document.getElementById("wilor-btn");
 const canvas = document.getElementById("overlay");
 const ctx = canvas.getContext("2d");
 
 let landmarker = null;
 let studio = null;
 let lastImage = null;
+let lastFile = null;
 let lastHands = [];
 let activeIndex = 0;
 
@@ -99,6 +102,7 @@ function renderActive() {
   const label = handednessOf(hand) === "Left" ? "izquierda" : "derecha";
   note.textContent = `Mano ${activeIndex + 1} · ${label} · 21 landmarks`;
   copyBtn.hidden = false;
+  wilorBtn.hidden = false;
 }
 
 function showHands(image, detection) {
@@ -113,6 +117,7 @@ function showHands(image, detection) {
     results.hidden = true;
     toolbar.hidden = true;
     copyBtn.hidden = true;
+    wilorBtn.hidden = true;
     emptyMsg.hidden = false;
     studio?.clear();
     return;
@@ -155,6 +160,7 @@ async function processFile(file) {
     return;
   }
   setStatus("Detectando mano…");
+  lastFile = file;
   const url = URL.createObjectURL(file);
   try {
     const image = await loadImage(url);
@@ -206,6 +212,30 @@ dropzone.addEventListener("drop", (e) => {
   if (file) processFile(file);
 });
 window.addEventListener("paste", onPaste);
+
+wilorBtn.addEventListener("click", async () => {
+  if (!lastFile || !lastImage) return;
+  wilorBtn.disabled = true;
+  try {
+    const result = await predictWilor(lastFile, setStatus);
+    const hands = wilorToHands(result);
+    if (!hands.length) {
+      setStatus("WiLoR no encontró manos");
+      return;
+    }
+    showHands(lastImage, {
+      landmarks: hands.map((h) => h.landmarks),
+      worldLandmarks: hands.map((h) => h.worldLandmarks),
+      handedness: hands.map((h) => h.handedness),
+    });
+    setStatus(`WiLoR · ${hands.length} mano${hands.length === 1 ? "" : "s"}`, true);
+  } catch (err) {
+    console.error(err);
+    setStatus(err.message || "WiLoR no está disponible");
+  } finally {
+    wilorBtn.disabled = false;
+  }
+});
 
 copyBtn.addEventListener("click", async () => {
   const hand = lastHands[activeIndex];
