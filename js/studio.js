@@ -157,13 +157,16 @@ function cropHandFile(image, landmarks) {
   const sw = Math.max(48, Math.ceil(box.w * width));
   const sh = Math.max(48, Math.ceil(box.h * height));
   const size = Math.max(sw, sh, 256);
+  const ox = (size - sw) / 2;
+  const oy = (size - sh) / 2;
   const crop = document.createElement("canvas");
   crop.width = size;
   crop.height = size;
   const g = crop.getContext("2d");
   g.fillStyle = "#777";
   g.fillRect(0, 0, size, size);
-  g.drawImage(image, sx, sy, sw, sh, (size - sw) / 2, (size - sh) / 2, sw, sh);
+  g.drawImage(image, sx, sy, sw, sh, ox, oy, sw, sh);
+  const meta = { sx, sy, sw, sh, size, ox, oy, width, height };
   return new Promise((resolve) => {
     crop.toBlob(
       (blob) => {
@@ -171,12 +174,23 @@ function cropHandFile(image, landmarks) {
           resolve(null);
           return;
         }
-        resolve(new File([blob], "hand-crop.png", { type: "image/png" }));
+        resolve({ file: new File([blob], "hand-crop.png", { type: "image/png" }), meta });
       },
       "image/png",
       0.92,
     );
   });
+}
+
+function remapCropToFull(lm, meta) {
+  const px = lm.x * meta.size;
+  const py = lm.y * meta.size;
+  return {
+    ...lm,
+    x: (meta.sx + (px - meta.ox)) / meta.width,
+    y: (meta.sy + (py - meta.oy)) / meta.height,
+    mapped: true,
+  };
 }
 
 function toDetectCanvas(image) {
@@ -222,17 +236,36 @@ function isOccluded(lm) {
   return false;
 }
 
+const VISIBLE_KNUCKLES = [0, 5, 9, 13, 17];
+const TUCK_IDS = [3, 4, 7, 8, 11, 12, 15, 16, 19, 20];
+
+function pointInPoly(point, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x;
+    const yi = poly[i].y;
+    const xj = poly[j].x;
+    const yj = poly[j].y;
+    const hit = yi > point.y !== yj > point.y && point.x < ((xj - xi) * (point.y - yi)) / (yj - yi + 1e-9) + xi;
+    if (hit) inside = !inside;
+  }
+  return inside;
+}
+
 function addOcclusion(landmarks, world) {
   const src = world || landmarks;
-  const palm = [0, 5, 9, 13, 17];
-  if (!src?.[0] || landmarks.some((lm) => typeof lm.occluded === "boolean")) {
-    return landmarks;
-  }
+  const palm = VISIBLE_KNUCKLES;
   const palmZ = palm.reduce((sum, id) => sum + (src[id]?.z ?? 0), 0) / palm.length;
-  return landmarks.map((lm, i) => ({
-    ...lm,
-    occluded: !palm.includes(i) && (src[i]?.z ?? 0) > palmZ + 0.012,
-  }));
+  const hull = [0, 1, 5, 9, 13, 17].map((id) => landmarks[id]).filter(Boolean);
+  return landmarks.map((lm, i) => {
+    if (VISIBLE_KNUCKLES.includes(i)) return { ...lm, occluded: false };
+    let occluded = lm.occluded === true;
+    if (typeof lm.visibility === "number") occluded = occluded || lm.visibility < 0.45;
+    if (typeof lm.presence === "number") occluded = occluded || lm.presence < 0.5;
+    if (TUCK_IDS.includes(i) && hull.length >= 4 && pointInPoly(lm, hull)) occluded = true;
+    if ((src[i]?.z ?? 0) > palmZ + 0.014) occluded = true;
+    return { ...lm, occluded };
+  });
 }
 
 function pentagonPath(x, y, r) {
@@ -313,21 +346,34 @@ function handednessOf(hand) {
 
 function photoLandmarks(hand) {
   const mp = sources.mediapipe?.[activeIndex] || sources.mediapipe?.[0];
-  if (mp?.landmarks?.length === 21) {
-    return mp.landmarks.map((lm, i) => ({
-      x: lm.x,
-      y: lm.y,
-      z: lm.z ?? 0,
-      occluded: Boolean(hand.landmarks[i]?.occluded),
-    }));
-  }
-  return hand.landmarks;
+  if (!mp?.landmarks?.length) return hand.landmarks;
+  return mp.landmarks.map((lm, i) => ({
+    x: lm.x,
+    y: lm.y,
+    z: lm.z ?? 0,
+    visibility: lm.visibility,
+    presence: lm.presence,
+    occluded: hand.landmarks[i]?.occluded,
+  }));
+}
+
+function hybridOccluded(landmarks, hand) {
+  return landmarks.map((lm, i) => {
+    const wilor = hand.landmarks[i];
+    if (lm.occluded && wilor?.mapped) {
+      return { ...lm, x: wilor.x, y: wilor.y, z: wilor.z ?? lm.z };
+    }
+    return lm;
+  });
 }
 
 function renderActive() {
   const hand = lastHands[activeIndex];
   if (!hand || !lastImage) return;
-  const landmarks = addOcclusion(photoLandmarks(hand), hand.worldLandmarks);
+  const landmarks = hybridOccluded(
+    addOcclusion(photoLandmarks(hand), hand.worldLandmarks),
+    hand,
+  );
   drawOverlay(lastImage, landmarks, handednessOf(hand));
   studio?.setHand(hand.worldLandmarks, handednessOf(hand), hand.mesh, landmarks);
   const label = handednessOf(hand) === "Left" ? "izquierda" : "derecha";
@@ -489,10 +535,16 @@ async function refineWithWilor() {
       mpHand?.landmarks?.length === 21
         ? await cropHandFile(lastImage, mpHand.landmarks)
         : null;
-    const payload = cropped || lastFile;
+    const payload = cropped?.file || lastFile;
     const result = await predictWilor(payload, setStatus, hint);
     if (job !== wilorJob) return;
-    const hands = wilorToHands(result);
+    let hands = wilorToHands(result);
+    if (cropped?.meta) {
+      hands = hands.map((hand) => ({
+        ...hand,
+        landmarks: hand.landmarks.map((lm) => remapCropToFull(lm, cropped.meta)),
+      }));
+    }
     if (!hands.length) {
       setStatus("WiLoR no encontró manos · se deja MediaPipe");
       return;

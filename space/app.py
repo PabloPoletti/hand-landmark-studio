@@ -253,6 +253,18 @@ def mostly_inside(points_xy, bbox):
     return inside >= 0.55 * len(points_xy)
 
 
+def project_with_cam(points_3d, cam, width, height):
+    cam = np.asarray(cam).reshape(-1)
+    if cam.size < 3:
+        return None
+    scale, tx, ty = float(cam[0]), float(cam[1]), float(cam[2])
+    xy = points_3d[:, :2] * scale + np.array([tx, ty], dtype=np.float64)
+    span = float(np.nanmax(np.abs(xy))) if xy.size else 0
+    if span < 3:
+        xy = (xy + 1.0) * 0.5 * np.array([width, height], dtype=np.float64)
+    return xy
+
+
 def occlusion_flags(points_3d):
     palm_ids = [0, 5, 9, 13, 17]
     palm_z = float(np.mean(points_3d[palm_ids, 2]))
@@ -319,8 +331,13 @@ def infer(image_rgb, is_right_hint=None):
         if count < 21:
             continue
         bbox = out.get("hand_bbox")
+        frame_box = bbox if bbox is not None and len(bbox) >= 4 else [0, 0, width, height]
         kp2d = as_points(keypoints_2d)[:, :2]
-        if bbox is not None and len(bbox) >= 4 and mostly_inside(kp2d[:count], bbox):
+        cam = preds.get("pred_cam") or preds.get("cam")
+        projected = project_with_cam(points_3d[:count], cam, width, height) if cam is not None else None
+        if projected is not None and mostly_inside(projected, frame_box):
+            points_2d = projected
+        elif mostly_inside(kp2d[:count], frame_box):
             points_2d = kp2d[:count].astype(np.float64)
         else:
             points_2d = points_3d[:count, :2].copy()
