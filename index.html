@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hand Landmark Studio</title>
+    <meta
+      name="description"
+      content="Pegá una foto de una mano y simulá los 21 landmarks MediaPipe en 2D y 3D."
+    />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✋</text></svg>" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div>
+        <p class="eyebrow">Blueprint · MediaPipe 21 puntos</p>
+        <h1>Hand Landmark Studio</h1>
+        <p class="lede">
+          Pegá una foto con <kbd>Ctrl</kbd>+<kbd>V</kbd>. El modelo estima la
+          pose y la muestra sobre la imagen y en tres vistas 3D.
+        </p>
+      </div>
+      <div class="meta">
+        <span id="engine-status" class="pill">Cargando modelo…</span>
+        <button id="copy-json" class="ghost" type="button" hidden>
+          Copiar JSON 21 pts
+        </button>
+      </div>
+    </header>
+
+    <section id="dropzone" class="dropzone" tabindex="0">
+      <input id="file-input" type="file" accept="image/*" hidden />
+      <div class="dropzone-inner">
+        <div class="plus">+</div>
+        <p><strong>Ctrl + V</strong> para pegar una captura o foto</p>
+        <p class="hint">También podés soltar un archivo o hacer clic para elegir uno</p>
+      </div>
+    </section>
+
+    <section id="toolbar" class="toolbar" hidden>
+      <div id="hand-switcher" class="switcher"></div>
+      <p id="detect-note" class="note"></p>
+    </section>
+
+    <section id="results" class="results" hidden>
+      <article class="panel">
+        <div class="frame photo-frame">
+          <canvas id="overlay"></canvas>
+        </div>
+        <h2>landmarks sobre tu foto</h2>
+      </article>
+      <article class="panel">
+        <div class="frame view" id="view-front"></div>
+        <h2>frente</h2>
+      </article>
+      <article class="panel">
+        <div class="frame view" id="view-threequarter"></div>
+        <h2>3/4</h2>
+      </article>
+      <article class="panel">
+        <div class="frame view" id="view-side"></div>
+        <h2>lateral</h2>
+      </article>
+    </section>
+
+    <p id="empty-msg" class="empty" hidden>
+      No se detectó ninguna mano. Probá con una foto más cercana, mejor luz o
+      la palma más visible.
+    </p>
+
+    <footer>
+      Motor en el navegador:
+      <a href="https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker" target="_blank" rel="noreferrer">MediaPipe Hand Landmarker</a>
+      · mismo esquema 0–20 que Blueprint.
+      WiLoR-mini no corre en GitHub Pages (PyTorch + MANO).
+    </footer>
+
+    <script type="module" src="js/app.js"></script>
+  </body>
+</html>
