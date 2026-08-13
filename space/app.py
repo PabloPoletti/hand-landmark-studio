@@ -15,6 +15,18 @@ from fastapi.responses import JSONResponse
 from gradio.routes import App
 from PIL import Image
 
+# PyTorch 2.6+ defaults torch.load(weights_only=True), which blocks the
+# official WiLoR-mini YOLO/MANO checkpoints (trusted HF weights).
+_orig_torch_load = torch.load
+
+
+def _torch_load(*args, **kwargs):
+    kwargs.setdefault("weights_only", False)
+    return _orig_torch_load(*args, **kwargs)
+
+
+torch.load = _torch_load
+
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 DTYPE = torch.float16 if DEVICE.type == "cuda" else torch.float32
 PIPE = None
