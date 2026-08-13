@@ -6,10 +6,11 @@ import { CONNECTIONS, FINGER_CHAINS, colorFor } from "./schema.js";
 const Y_UP = new THREE.Vector3(0, 1, 0);
 
 function toVec(p) {
+  if (Array.isArray(p)) return new THREE.Vector3(p[0], -p[1], -p[2]);
   return new THREE.Vector3(p.x, -p.y, -p.z);
 }
 
-export function alignWorldLandmarks(world, handedness) {
+function alignmentFromLandmarks(world, handedness) {
   const pts = world.map(toVec);
   const wrist = pts[0].clone();
   pts.forEach((p) => p.sub(wrist));
@@ -24,7 +25,6 @@ export function alignWorldLandmarks(world, handedness) {
   if (handedness === "Left") z.negate();
   const x = new THREE.Vector3().crossVectors(y, z).normalize();
   z.crossVectors(x, y).normalize();
-
   const basis = new THREE.Matrix4().makeBasis(x, y, z).invert();
   pts.forEach((p) => p.applyMatrix4(basis));
 
@@ -38,7 +38,17 @@ export function alignWorldLandmarks(world, handedness) {
   pts.forEach((p) => center.add(p));
   center.multiplyScalar(1 / pts.length);
   pts.forEach((p) => p.sub(center));
-  return pts;
+
+  return {
+    pts,
+    apply(raw) {
+      const v = toVec(raw).sub(wrist);
+      v.applyMatrix4(basis);
+      v.multiplyScalar(scale);
+      v.sub(center);
+      return v;
+    },
+  };
 }
 
 function bone(a, b, radius, material) {
@@ -50,6 +60,67 @@ function bone(a, b, radius, material) {
   mesh.position.copy(a).add(b).multiplyScalar(0.5);
   mesh.quaternion.setFromUnitVectors(Y_UP, dir.clone().normalize());
   return mesh;
+}
+
+function addSkeleton(group, pts) {
+  CONNECTIONS.forEach(([a, b]) => {
+    const mesh = bone(
+      pts[a],
+      pts[b],
+      0.012,
+      new THREE.MeshBasicMaterial({ color: colorFor(b === 0 ? a : b) }),
+    );
+    if (mesh) group.add(mesh);
+  });
+
+  pts.forEach((p, i) => {
+    const ball = new THREE.Mesh(
+      new THREE.SphereGeometry(0.02, 12, 10),
+      new THREE.MeshBasicMaterial({ color: colorFor(i) }),
+    );
+    ball.position.copy(p);
+    group.add(ball);
+
+    const el = document.createElement("div");
+    el.className = "label3d";
+    el.textContent = String(i);
+    const label = new CSS2DObject(el);
+    label.position.copy(p);
+    label.center.set(0.5, 1.4);
+    group.add(label);
+  });
+}
+
+function buildManoHand(pts, meshData, apply) {
+  const group = new THREE.Group();
+  const verts = meshData.vertices.map((v) => apply(v));
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(verts.length * 3);
+  verts.forEach((v, i) => {
+    pos[i * 3] = v.x;
+    pos[i * 3 + 1] = v.y;
+    pos[i * 3 + 2] = v.z;
+  });
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  geo.setIndex(meshData.faces.flat());
+  geo.computeVertexNormals();
+
+  group.add(
+    new THREE.Mesh(
+      geo,
+      new THREE.MeshPhysicalMaterial({
+        color: 0xc9c4bc,
+        roughness: 0.42,
+        metalness: 0,
+        transparent: true,
+        opacity: 0.4,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    ),
+  );
+  addSkeleton(group, pts);
+  return group;
 }
 
 function palmGeometry(pts) {
@@ -101,16 +172,14 @@ function buildGhostHand(pts) {
   });
 
   group.add(new THREE.Mesh(palmGeometry(pts), skin));
-
-  const webbing = [
+  [
     [0, 1, 5],
     [0, 5, 9],
     [0, 9, 13],
     [0, 13, 17],
     [5, 9, 13],
     [9, 13, 17],
-  ];
-  webbing.forEach(([a, b, c]) => {
+  ].forEach(([a, b, c]) => {
     const geo = new THREE.BufferGeometry().setFromPoints([pts[a], pts[b], pts[c]]);
     geo.setIndex([0, 1, 2]);
     geo.computeVertexNormals();
@@ -121,39 +190,24 @@ function buildGhostHand(pts) {
     const chain = finger.ids.map((id) => pts[id]);
     if (finger.key === "thumb") chain.unshift(pts[0]);
     for (let i = 0; i < chain.length - 1; i++) {
-      const mesh = bone(chain[i], chain[i + 1], 0.032, skin);
+      const mesh = bone(chain[i], chain[i + 1], 0.028, skin);
       if (mesh) group.add(mesh);
     }
   });
 
-  CONNECTIONS.forEach(([a, b]) => {
-    const mesh = bone(
-      pts[a],
-      pts[b],
-      0.01,
-      new THREE.MeshBasicMaterial({ color: colorFor(b === 0 ? a : b) }),
-    );
-    if (mesh) group.add(mesh);
-  });
-
-  pts.forEach((p, i) => {
-    const ball = new THREE.Mesh(
-      new THREE.SphereGeometry(0.018, 12, 10),
-      new THREE.MeshBasicMaterial({ color: colorFor(i) }),
-    );
-    ball.position.copy(p);
-    group.add(ball);
-
-    const el = document.createElement("div");
-    el.className = "label3d";
-    el.textContent = String(i);
-    const label = new CSS2DObject(el);
-    label.position.copy(p);
-    label.center.set(0.5, 1.35);
-    group.add(label);
-  });
-
+  addSkeleton(group, pts);
   return group;
+}
+
+function disposeHand(hand) {
+  if (!hand) return;
+  hand.traverse((obj) => {
+    if (obj.geometry) obj.geometry.dispose();
+    if (obj.material) {
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      mats.forEach((m) => m.dispose?.());
+    }
+  });
 }
 
 function makeView(container, cameraPos) {
@@ -222,11 +276,17 @@ export class HandStudio3D {
     });
   }
 
-  setHand(worldLandmarks, handedness) {
-    const pts = alignWorldLandmarks(worldLandmarks, handedness);
+  setHand(worldLandmarks, handedness, mesh) {
+    const aligned = alignmentFromLandmarks(worldLandmarks, handedness);
+    const hasMesh = mesh?.vertices?.length && mesh?.faces?.length;
     Object.values(this.views).forEach((v) => {
-      if (v.hand) v.scene.remove(v.hand);
-      v.hand = buildGhostHand(pts);
+      if (v.hand) {
+        v.scene.remove(v.hand);
+        disposeHand(v.hand);
+      }
+      v.hand = hasMesh
+        ? buildManoHand(aligned.pts, mesh, aligned.apply)
+        : buildGhostHand(aligned.pts);
       v.scene.add(v.hand);
     });
     this.resize();
@@ -236,6 +296,7 @@ export class HandStudio3D {
     Object.values(this.views).forEach((v) => {
       if (v.hand) {
         v.scene.remove(v.hand);
+        disposeHand(v.hand);
         v.hand = null;
       }
     });

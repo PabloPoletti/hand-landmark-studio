@@ -93,5 +93,9 @@ export function wilorToHands(result) {
       z: lm.Z,
     })),
     handedness: [{ categoryName: hand.is_right ? "Right" : "Left" }],
+    mesh:
+      hand.vertices && (result.faces || hand.faces)
+        ? { vertices: hand.vertices, faces: result.faces || hand.faces }
+        : null,
   }));
 }

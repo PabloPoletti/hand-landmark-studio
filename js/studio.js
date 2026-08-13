@@ -215,7 +215,7 @@ function renderActive() {
   const hand = lastHands[activeIndex];
   if (!hand || !lastImage) return;
   drawOverlay(lastImage, hand.landmarks);
-  studio?.setHand(hand.worldLandmarks, handednessOf(hand));
+  studio?.setHand(hand.worldLandmarks, handednessOf(hand), hand.mesh);
   const label = handednessOf(hand) === "Left" ? "izquierda" : "derecha";
   note.textContent = `Mano ${activeIndex + 1} · ${label} · 21 landmarks`;
   copyBtn.hidden = false;
@@ -227,6 +227,7 @@ function detectionToHands(detection) {
     landmarks,
     worldLandmarks: detection.worldLandmarks[i],
     handedness: detection.handedness?.[i] || detection.handednesses?.[i],
+    mesh: detection.mesh?.[i] || null,
   }));
 }
 
@@ -372,6 +373,7 @@ wilorBtn.addEventListener("click", async () => {
       landmarks: hands.map((h) => h.landmarks),
       worldLandmarks: hands.map((h) => h.worldLandmarks),
       handedness: hands.map((h) => h.handedness),
+      mesh: hands.map((h) => h.mesh),
     }, "wilor");
     setStatus(`WiLoR · ${hands.length} mano${hands.length === 1 ? "" : "s"}`, true);
   } catch (err) {

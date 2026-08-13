@@ -151,26 +151,40 @@ def infer(image_rgb):
         count = min(21, len(points_2d), len(points_3d))
         if count < 21:
             continue
-        hands.append(
-            {
-                "hand": index + 1,
-                "is_right": bool(out.get("is_right", 1)),
-                "landmarks": [
-                    {
-                        "id": joint,
-                        "x": float(points_2d[joint, 0] / width),
-                        "y": float(points_2d[joint, 1] / height),
-                        "z": float(points_2d[joint, 2]) if points_2d.shape[1] > 2 else 0.0,
-                        "X": float(points_3d[joint, 0]),
-                        "Y": float(points_3d[joint, 1]),
-                        "Z": float(points_3d[joint, 2]),
-                    }
-                    for joint in range(count)
-                ],
-            }
-        )
+        hand = {
+            "hand": index + 1,
+            "is_right": bool(out.get("is_right", 1)),
+            "landmarks": [
+                {
+                    "id": joint,
+                    "x": float(points_2d[joint, 0] / width),
+                    "y": float(points_2d[joint, 1] / height),
+                    "z": float(points_2d[joint, 2]) if points_2d.shape[1] > 2 else 0.0,
+                    "X": float(points_3d[joint, 0]),
+                    "Y": float(points_3d[joint, 1]),
+                    "Z": float(points_3d[joint, 2]),
+                }
+                for joint in range(count)
+            ],
+        }
+        verts = preds.get("pred_vertices")
+        if verts is not None:
+            points_v = as_points(verts)
+            hand["vertices"] = [
+                [float(row[0]), float(row[1]), float(row[2])] for row in points_v
+            ]
+        hands.append(hand)
+    faces = None
+    try:
+        mano = getattr(get_pipe().wilor_model, "mano", None)
+        raw_faces = getattr(mano, "faces", None)
+        if raw_faces is not None:
+            faces = np.asarray(raw_faces).astype(int).tolist()
+    except Exception:
+        faces = None
     payload = {
         "hands": hands,
+        "faces": faces,
         "engine": "wilor-mini",
         "device": str(DEVICE),
         "size": [width, height],
