@@ -121,19 +121,53 @@ def load_mano_faces():
         return None
 
 
+def looks_like_image(value):
+    if value is None or isinstance(value, (bool, int, float)):
+        return False
+    if isinstance(value, str):
+        text = value.strip()
+        return (
+            text.startswith("data:image")
+            or text.startswith("/")
+            or os.path.exists(text)
+            or len(text) > 200
+        )
+    return True
+
+
+def pick_image(*values):
+    for value in values:
+        if looks_like_image(value):
+            return value
+    return None
+
+
 def decode_image(payload):
     if payload is None:
         raise ValueError("No image")
+    if isinstance(payload, dict):
+        payload = payload.get("path") or payload.get("name") or payload.get("url") or payload.get("image")
+        if payload is None:
+            raise ValueError("No image")
     if isinstance(payload, np.ndarray):
         img = payload
     elif isinstance(payload, Image.Image):
         img = np.asarray(payload.convert("RGB"))
+    elif isinstance(payload, (bytes, bytearray)):
+        pil = ImageOps.exif_transpose(Image.open(io.BytesIO(payload)))
+        img = np.asarray(pil.convert("RGB"))
     elif isinstance(payload, str):
-        raw = payload.split(",", 1)[1] if payload.startswith("data:") else payload
-        pil = ImageOps.exif_transpose(Image.open(io.BytesIO(base64.b64decode(raw))))
+        text = payload.strip()
+        if text.startswith("data:"):
+            raw = text.split(",", 1)[1]
+            pil = ImageOps.exif_transpose(Image.open(io.BytesIO(base64.b64decode(raw))))
+        elif os.path.exists(text) or text.startswith("/"):
+            pil = ImageOps.exif_transpose(Image.open(text))
+        else:
+            pil = ImageOps.exif_transpose(Image.open(io.BytesIO(base64.b64decode(text))))
         img = np.asarray(pil.convert("RGB"))
     else:
-        raise ValueError("Formato de imagen no soportado")
+        raise ValueError(f"Formato de imagen no soportado: {type(payload).__name__}")
 
     if img.ndim == 2:
         img = np.stack([img] * 3, axis=-1)
@@ -331,9 +365,11 @@ def infer(image_rgb, is_right_hint=None):
 
 
 @spaces.GPU(duration=90)
-def predict(image, is_right_hint=None):
+def predict(image=None, is_right_hint=None, *args, **kwargs):
     try:
-        return json.dumps(infer(image, is_right_hint=is_right_hint), ensure_ascii=False)
+        image = pick_image(image, is_right_hint, *args, *kwargs.values())
+        hint = is_right_hint if not looks_like_image(is_right_hint) else kwargs.get("is_right")
+        return json.dumps(infer(image, is_right_hint=hint), ensure_ascii=False)
     except Exception as exc:
         return json.dumps(
             {
@@ -386,7 +422,10 @@ def create_app_with_wilor(blocks, *args, **kwargs):
     async def wilor_api(request: Request):
         try:
             body = await request.json()
-            raw = predict(body.get("image"), body.get("is_right"))
+            raw = predict(
+                pick_image(body.get("image"), body.get("data"), body.get("file")),
+                body.get("is_right"),
+            )
             data = json.loads(raw) if isinstance(raw, str) else raw
             return JSONResponse(data)
         except Exception as exc:
@@ -409,7 +448,7 @@ App.create_app = staticmethod(create_app_with_wilor)
 
 demo = gr.Interface(
     fn=predict,
-    inputs=gr.Image(type="numpy", label="Foto de la mano"),
+    inputs=gr.Image(type="filepath", label="Foto de la mano"),
     outputs=gr.Textbox(label="21 landmarks (JSON)", lines=18),
     title="Hand WiLoR",
     description="Backend de WiLoR-mini para Hand Landmark Studio. Pegá una foto y obtené 21 puntos 2D/3D.",
