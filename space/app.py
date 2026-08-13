@@ -6,76 +6,19 @@ import subprocess
 import sys
 import traceback
 
+import gradio as gr
 import numpy as np
 import spaces
 import torch
-import uvicorn
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import Request
+from fastapi.responses import JSONResponse
+from gradio.routes import App
 from PIL import Image
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 DTYPE = torch.float16 if DEVICE.type == "cuda" else torch.float32
 PIPE = None
 MAX_SIDE = 1280
-
-PAGE = """<!doctype html>
-<html lang="es">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Hand WiLoR</title>
-  <style>
-    body { font-family: sans-serif; background: #0f1419; color: #e7eef7; margin: 24px; }
-    textarea { width: 100%; min-height: 280px; background: #151b22; color: #e7eef7; border: 1px solid #2a3440; }
-    button { background: #f97316; color: #111; border: 0; padding: 10px 16px; font-weight: 700; cursor: pointer; }
-    .err { color: #fca5a5; }
-  </style>
-</head>
-<body>
-  <h1>Hand WiLoR</h1>
-  <p>Backend de WiLoR-mini para Hand Landmark Studio. Pegá o elegí una foto.</p>
-  <input id="file" type="file" accept="image/*" />
-  <button id="go">Detectar</button>
-  <p id="status"></p>
-  <textarea id="out" readonly></textarea>
-  <script>
-    const file = document.getElementById("file");
-    const out = document.getElementById("out");
-    const status = document.getElementById("status");
-    async function toDataUrl(f) {
-      return await new Promise((resolve, reject) => {
-        const r = new FileReader();
-        r.onload = () => resolve(r.result);
-        r.onerror = reject;
-        r.readAsDataURL(f);
-      });
-    }
-    async function run(f) {
-      status.textContent = "Procesando… la primera vez puede tardar 1–2 min";
-      out.value = "";
-      const res = await fetch("/wilor", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: await toDataUrl(f) }),
-      });
-      const data = await res.json();
-      out.value = JSON.stringify(data, null, 2);
-      status.textContent = data.error
-        ? data.error
-        : ((data.hands || []).length + " mano(s)");
-      status.className = data.error ? "err" : "";
-    }
-    document.getElementById("go").onclick = () => file.files[0] && run(file.files[0]);
-    document.addEventListener("paste", (e) => {
-      const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
-      if (item) run(item.getAsFile());
-    });
-  </script>
-</body>
-</html>
-"""
 
 
 def ensure_wilor():
@@ -138,10 +81,8 @@ def as_points(values):
     return points
 
 
-@spaces.GPU(duration=90)
-def run_wilor(image_rgb):
+def infer(image_rgb):
     img = decode_image(image_rgb)
-    # WiLoR-mini / YOLO were used with OpenCV BGR in the official examples.
     bgr = img[:, :, ::-1].copy()
     height, width = bgr.shape[:2]
     outputs = get_pipe().predict(bgr, hand_conf=0.15)
@@ -186,40 +127,91 @@ def run_wilor(image_rgb):
     return payload
 
 
-app = FastAPI()
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-@app.get("/", response_class=HTMLResponse)
-def home():
-    return PAGE
-
-
-@app.get("/health")
-def health():
-    return {"ok": True, "device": str(DEVICE)}
-
-
-@app.post("/wilor")
-async def wilor_api(request: Request):
+@spaces.GPU(duration=90)
+def predict(image):
     try:
-        body = await request.json()
-        return JSONResponse(run_wilor(body.get("image")))
+        return json.dumps(infer(image), ensure_ascii=False)
     except Exception as exc:
-        return JSONResponse(
+        return json.dumps(
             {
                 "hands": [],
                 "error": str(exc),
                 "trace": traceback.format_exc()[-2000:],
             },
-            status_code=200,
+            ensure_ascii=False,
         )
 
 
+def static_api_info(self, *args, **kwargs):
+    return {
+        "named_endpoints": {
+            "/predict": {
+                "parameters": [
+                    {
+                        "label": "Foto de la mano",
+                        "parameter_name": "image",
+                        "parameter_has_default": False,
+                        "type": {"type": "string"},
+                        "python_type": {"type": "filepath", "description": ""},
+                        "component": "Image",
+                        "example_input": "",
+                    }
+                ],
+                "returns": [
+                    {
+                        "label": "21 landmarks (JSON)",
+                        "type": {"type": "string"},
+                        "python_type": {"type": "str", "description": ""},
+                        "component": "Textbox",
+                    }
+                ],
+            }
+        },
+        "unnamed_endpoints": {},
+    }
+
+
+gr.blocks.Blocks.get_api_info = static_api_info
+
+_orig_create_app = App.create_app
+
+
+def create_app_with_wilor(blocks, *args, **kwargs):
+    app = _orig_create_app(blocks, *args, **kwargs)
+
+    @app.post("/wilor")
+    async def wilor_api(request: Request):
+        try:
+            body = await request.json()
+            raw = predict(body.get("image"))
+            data = json.loads(raw) if isinstance(raw, str) else raw
+            return JSONResponse(data)
+        except Exception as exc:
+            return JSONResponse(
+                {
+                    "hands": [],
+                    "error": str(exc),
+                    "trace": traceback.format_exc()[-2000:],
+                }
+            )
+
+    @app.get("/health")
+    def health():
+        return {"ok": True, "device": str(DEVICE)}
+
+    return app
+
+
+App.create_app = staticmethod(create_app_with_wilor)
+
+demo = gr.Interface(
+    fn=predict,
+    inputs=gr.Image(type="numpy", label="Foto de la mano"),
+    outputs=gr.Textbox(label="21 landmarks (JSON)", lines=18),
+    title="Hand WiLoR",
+    description="Backend de WiLoR-mini para Hand Landmark Studio. Pegá una foto y obtené 21 puntos 2D/3D.",
+    allow_flagging="never",
+)
+
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=7860)
+    demo.queue().launch(share=False, server_name="0.0.0.0", server_port=7860)
