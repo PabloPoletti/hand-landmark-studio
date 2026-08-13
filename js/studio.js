@@ -1,5 +1,5 @@
-import { CONNECTIONS, NAMES, colorFor, boneColor } from "./schema.js?v=32";
-import { predictWilor, wilorToHands } from "./wilor.js?v=32";
+import { CONNECTIONS, NAMES, colorFor, boneColor } from "./schema.js?v=33";
+import { predictWilor, wilorToHands } from "./wilor.js?v=33";
 
 const LOCAL_BASE = new URL("../vendor/mediapipe/", import.meta.url);
 const MODEL = new URL("hand_landmarker.task", LOCAL_BASE).href;
@@ -106,10 +106,11 @@ async function initModel() {
     "Modelo de manos",
   );
   try {
-    const three = await import("./hand3d.js?v=32");
+    const three = await import("./hand3d.js?v=33");
     studio = new three.HandStudio3D();
   } catch (err) {
     console.warn("Vista 3D no disponible", err);
+    setStatus("3D no cargó · recargá con Ctrl+F5");
   }
   ready = true;
   setStatus("Modelo listo · pegá una foto", true);
@@ -391,7 +392,18 @@ function renderActive() {
     hand,
   );
   drawOverlay(lastImage, landmarks, handednessOf(hand));
-  studio?.setHand(hand.worldLandmarks, handednessOf(hand), hand.mesh, landmarks);
+  const world =
+    hand.worldLandmarks?.length >= 21
+      ? hand.worldLandmarks
+      : sources.mediapipe?.[activeIndex]?.worldLandmarks ||
+        sources.mediapipe?.[0]?.worldLandmarks ||
+        landmarks;
+  try {
+    studio?.setHand(world, handednessOf(hand), hand.mesh, landmarks);
+  } catch (err) {
+    console.warn(err);
+    studio?.setHand(world, handednessOf(hand), null, landmarks);
+  }
   const label = handednessOf(hand) === "Left" ? "izquierda" : "derecha";
   const hidden = landmarks.filter(isOccluded).length;
   note.textContent = `Mano ${activeIndex + 1} · ${label} · 21 landmarks${

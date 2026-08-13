@@ -89,9 +89,9 @@ export function wilorToHands(result) {
       occluded: Boolean(lm.occluded),
     })),
     worldLandmarks: hand.landmarks.map((lm) => ({
-      x: lm.X,
-      y: lm.Y,
-      z: lm.Z,
+      x: Number(lm.X ?? lm.x ?? 0),
+      y: Number(lm.Y ?? lm.y ?? 0),
+      z: Number(lm.Z ?? lm.z ?? 0),
     })),
     handedness: [{ categoryName: hand.is_right ? "Right" : "Left" }],
     mesh:

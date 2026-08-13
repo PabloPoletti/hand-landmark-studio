@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { CONNECTIONS, FINGER_CHAINS, colorFor, boneColor } from "./schema.js";
+import { CONNECTIONS, FINGER_CHAINS, colorFor, boneColor } from "./schema.js?v=33";
 
 const SKIN_SCALE = 1.72;
 const SURFACE_LIFT = 0.034;
@@ -11,8 +11,33 @@ const PALM_EDGES = new Set(["0-1", "0-5", "0-9", "0-13", "0-17", "5-9", "9-13", 
 const Y_UP = new THREE.Vector3(0, 1, 0);
 
 function toVec(p) {
-  if (Array.isArray(p)) return new THREE.Vector3(p[0], -p[1], -p[2]);
-  return new THREE.Vector3(p.x, -p.y, -p.z);
+  if (Array.isArray(p)) return new THREE.Vector3(Number(p[0]), -Number(p[1]), -Number(p[2]));
+  return new THREE.Vector3(Number(p.x ?? p.X), -Number(p.y ?? p.Y), -Number(p.z ?? p.Z));
+}
+
+function isFiniteVec(v) {
+  return Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
+}
+
+function usableWorld(world) {
+  return Array.isArray(world) && world.length >= 21 && world.every((p) => isFiniteVec(toVec(p)));
+}
+
+function usableMesh(mesh) {
+  if (!mesh?.vertices?.length || !mesh?.faces?.length) return false;
+  const n = mesh.vertices.length;
+  return asTriangles(mesh.faces).every(
+    ([a, b, c]) =>
+      Number.isInteger(a) &&
+      Number.isInteger(b) &&
+      Number.isInteger(c) &&
+      a >= 0 &&
+      b >= 0 &&
+      c >= 0 &&
+      a < n &&
+      b < n &&
+      c < n,
+  );
 }
 
 function alignmentFromLandmarks(world, handedness) {
@@ -347,7 +372,7 @@ function makeView(container, cameraPos) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.9;
+  renderer.toneMappingExposure = 1.05;
   container.appendChild(renderer.domElement);
 
   try {
@@ -365,9 +390,9 @@ function makeView(container, cameraPos) {
   controls.minDistance = 1.4;
   controls.maxDistance = 5;
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.22));
-  scene.add(new THREE.HemisphereLight(0xe8ddd2, 0x5a534c, 0.62));
-  const key = new THREE.DirectionalLight(0xfff1e4, 0.82);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.42));
+  scene.add(new THREE.HemisphereLight(0xe8ddd2, 0x5a534c, 0.78));
+  const key = new THREE.DirectionalLight(0xfff1e4, 1.05);
   key.position.set(1.6, 2.4, 2.0);
   scene.add(key);
   const fill = new THREE.DirectionalLight(0xc5d0e0, 0.28);
@@ -414,16 +439,29 @@ export class HandStudio3D {
   }
 
   setHand(worldLandmarks, handedness, mesh, landmarks = []) {
+    if (!usableWorld(worldLandmarks)) return;
     const aligned = alignmentFromLandmarks(worldLandmarks, handedness);
-    const hasMesh = mesh?.vertices?.length && mesh?.faces?.length;
     Object.values(this.views).forEach((v) => {
+      let next = null;
+      try {
+        next =
+          usableMesh(mesh)
+            ? buildManoHand(aligned.pts, mesh, aligned.apply, landmarks, handedness)
+            : buildAnatomicalHand(aligned.pts, landmarks, handedness);
+      } catch (err) {
+        console.warn("No se pudo armar la malla MANO, se usa la mano anatómica", err);
+        try {
+          next = buildAnatomicalHand(aligned.pts, landmarks, handedness);
+        } catch (fallbackErr) {
+          console.warn("Tampoco se pudo armar la mano 3D", fallbackErr);
+          return;
+        }
+      }
       if (v.hand) {
         v.scene.remove(v.hand);
         disposeHand(v.hand);
       }
-      v.hand = hasMesh
-        ? buildManoHand(aligned.pts, mesh, aligned.apply, landmarks, handedness)
-        : buildAnatomicalHand(aligned.pts, landmarks, handedness);
+      v.hand = next;
       v.scene.add(v.hand);
     });
     this.resize();
