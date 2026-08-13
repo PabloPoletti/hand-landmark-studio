@@ -24,11 +24,11 @@ export const NAMES = [
 
 export const FINGER = {
   wrist: { ids: [0], color: "#9aa0a6" },
-  thumb: { ids: [1, 2, 3, 4], color: "#f0abfc" },
-  index: { ids: [5, 6, 7, 8], color: "#fb923c" },
+  thumb: { ids: [1, 2, 3, 4], color: "#f472b6" },
+  index: { ids: [5, 6, 7, 8], color: "#facc15" },
   middle: { ids: [9, 10, 11, 12], color: "#4ade80" },
-  ring: { ids: [13, 14, 15, 16], color: "#38bdf8" },
-  pinky: { ids: [17, 18, 19, 20], color: "#a78bfa" },
+  ring: { ids: [13, 14, 15, 16], color: "#3b82f6" },
+  pinky: { ids: [17, 18, 19, 20], color: "#a855f7" },
 };
 
 export const CONNECTIONS = [

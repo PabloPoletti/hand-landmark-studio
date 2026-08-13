@@ -9,7 +9,7 @@
       content="Pegá una foto de una mano y simulá los 21 landmarks MediaPipe en 2D y 3D."
     />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✋</text></svg>" />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=20" />
     <script type="importmap">
       {
         "imports": {
@@ -63,7 +63,19 @@
           <canvas id="overlay"></canvas>
         </div>
         <h2>landmarks sobre tu foto</h2>
-        <p class="legend">Sólido = visible · punteado / * = ocluido</p>
+        <p class="legend">
+          <span class="shape-key"><i class="shape-circle"></i> círculo = izquierda</span>
+          <span class="shape-key"><i class="shape-pentagon"></i> pentágono = derecha</span>
+          · punteado / * = ocluido
+        </p>
+        <p class="legend colors">
+          <span><i style="background:#9aa0a6"></i>0 muñeca</span>
+          <span><i style="background:#f472b6"></i>1–4 pulgar</span>
+          <span><i style="background:#facc15"></i>5–8 índice</span>
+          <span><i style="background:#4ade80"></i>9–12 medio</span>
+          <span><i style="background:#3b82f6"></i>13–16 anular</span>
+          <span><i style="background:#a855f7"></i>17–20 meñique</span>
+        </p>
       </article>
       <article class="panel">
         <div class="frame view" id="view-front"></div>
@@ -136,6 +148,6 @@
         });
       })();
     </script>
-    <script type="module" src="js/studio.js?v=19"></script>
+    <script type="module" src="js/studio.js?v=20"></script>
   </body>
 </html>

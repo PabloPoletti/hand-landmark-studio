@@ -198,6 +198,45 @@ footer {
   text-align: center;
   font-size: 11px;
   color: var(--muted);
+  line-height: 1.55;
+}
+
+.legend.colors {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 10px;
+}
+
+.legend.colors span,
+.shape-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legend.colors i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.shape-circle,
+.shape-pentagon {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  background: #e8edf5;
+}
+
+.shape-circle {
+  border-radius: 50%;
+}
+
+.shape-pentagon {
+  clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
 }
 
 .frame {
@@ -226,15 +265,17 @@ footer {
 
 .label3d {
   color: #111;
-  background: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(0, 0, 0, 0.28);
   border-radius: 999px;
-  min-width: 15px;
-  height: 15px;
+  min-width: 17px;
+  height: 17px;
   padding: 0 4px;
-  font: 700 10px/15px "Segoe UI", sans-serif;
+  font: 800 11px/17px "Segoe UI", sans-serif;
   text-align: center;
   pointer-events: none;
   user-select: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
 }
 
 .label3d.occluded {

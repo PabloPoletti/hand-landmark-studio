@@ -182,72 +182,98 @@ function addOcclusion(landmarks, world) {
   }));
 }
 
-function drawOverlay(image, landmarks) {
+function pentagonPath(x, y, r) {
+  ctx.beginPath();
+  for (let i = 0; i < 5; i++) {
+    const angle = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
+    const px = x + r * Math.cos(angle);
+    const py = y + r * Math.sin(angle);
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+}
+
+function drawLandmarkShape(x, y, r, color, isRight, hidden) {
+  ctx.save();
+  ctx.globalAlpha = hidden ? 0.55 : 1;
+  if (isRight) pentagonPath(x, y, r + 1.6);
+  else {
+    ctx.beginPath();
+    ctx.arc(x, y, r + 1.6, 0, Math.PI * 2);
+  }
+  ctx.fillStyle = "#111";
+  ctx.fill();
+  if (isRight) pentagonPath(x, y, r);
+  else {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+  }
+  if (hidden) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.4;
+    ctx.setLineDash([3, 2]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  } else if (isRight) {
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawOverlay(image, landmarks, handedness) {
   const fit = drawPhoto(image);
   if (!fit || !landmarks?.length) return;
+  const isRight = handedness === "Right";
 
   const px = (lm) => ({ x: fit.x + lm.x * fit.w, y: fit.y + lm.y * fit.h });
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  const stroke = Math.max(2.5, canvas.width / 220);
+  const stroke = Math.max(4, canvas.width / 140);
   CONNECTIONS.forEach(([a, b]) => {
     const pa = px(landmarks[a]);
     const pb = px(landmarks[b]);
     const hidden = isOccluded(landmarks[a]) || isOccluded(landmarks[b]);
-    ctx.globalAlpha = hidden ? 0.4 : 1;
-    ctx.setLineDash(hidden ? [7, 5] : []);
-    ctx.lineWidth = stroke;
-    ctx.strokeStyle = colorFor(b === 0 ? a : b);
+    ctx.globalAlpha = hidden ? 0.45 : 1;
+    ctx.setLineDash(hidden ? [8, 5] : []);
     ctx.beginPath();
     ctx.moveTo(pa.x, pa.y);
     ctx.lineTo(pb.x, pb.y);
+    ctx.strokeStyle = "#111";
+    ctx.lineWidth = stroke + 3;
+    ctx.stroke();
+    ctx.strokeStyle = colorFor(b === 0 ? a : b);
+    ctx.lineWidth = stroke;
     ctx.stroke();
   });
   ctx.setLineDash([]);
   ctx.globalAlpha = 1;
 
-  const r = Math.max(3.5, canvas.width / 160);
-  const font = Math.max(11, canvas.width / 64);
+  const r = Math.max(5.5, canvas.width / 120);
+  const font = Math.max(12, canvas.width / 56);
   landmarks.forEach((lm, i) => {
     const p = px(lm);
     const hidden = isOccluded(lm);
-    ctx.globalAlpha = hidden ? 0.55 : 1;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, r + 1.4, 0, Math.PI * 2);
-    ctx.fillStyle = "#fff";
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-    if (hidden) {
-      ctx.strokeStyle = colorFor(i);
-      ctx.lineWidth = 2;
-      ctx.setLineDash([2, 2]);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.beginPath();
-      ctx.moveTo(p.x - r * 0.55, p.y - r * 0.55);
-      ctx.lineTo(p.x + r * 0.55, p.y + r * 0.55);
-      ctx.moveTo(p.x + r * 0.55, p.y - r * 0.55);
-      ctx.lineTo(p.x - r * 0.55, p.y + r * 0.55);
-      ctx.stroke();
-    } else {
-      ctx.fillStyle = colorFor(i);
-      ctx.fill();
-    }
-
-    ctx.font = `700 ${font}px Segoe UI, sans-serif`;
+    drawLandmarkShape(p.x, p.y, r, colorFor(i), isRight, hidden);
+    ctx.font = `800 ${font}px Segoe UI, sans-serif`;
     ctx.textAlign = "left";
     ctx.textBaseline = "bottom";
     const label = hidden ? `${i}*` : String(i);
-    const tx = p.x + r + 2;
+    const tx = p.x + r + 3;
     const ty = p.y - r;
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = "rgba(0,0,0,0.65)";
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "rgba(0,0,0,0.8)";
     ctx.strokeText(label, tx, ty);
-    ctx.fillStyle = hidden ? "#fde68a" : "#fff";
+    ctx.fillStyle = "#fff";
     ctx.fillText(label, tx, ty);
   });
-  ctx.globalAlpha = 1;
 }
 
 function handednessOf(hand) {
@@ -259,7 +285,7 @@ function renderActive() {
   if (!hand || !lastImage) return;
   const landmarks = addOcclusion(hand.landmarks, hand.worldLandmarks);
   hand.landmarks = landmarks;
-  drawOverlay(lastImage, landmarks);
+  drawOverlay(lastImage, landmarks, handednessOf(hand));
   studio?.setHand(hand.worldLandmarks, handednessOf(hand), hand.mesh, landmarks);
   const label = handednessOf(hand) === "Left" ? "izquierda" : "derecha";
   const hidden = landmarks.filter(isOccluded).length;

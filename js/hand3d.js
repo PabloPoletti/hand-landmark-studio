@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
+import { CSS2DObject, CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import { CONNECTIONS, FINGER_CHAINS, colorFor } from "./schema.js";
 
 const Y_UP = new THREE.Vector3(0, 1, 0);
@@ -63,38 +63,103 @@ function bone(a, b, r0, r1, material) {
   return mesh;
 }
 
-function addSkeleton(group, pts, landmarks = []) {
+function palmNormal(pts) {
+  const n = new THREE.Vector3().crossVectors(
+    pts[5].clone().sub(pts[0]),
+    pts[17].clone().sub(pts[0]),
+  );
+  if (n.lengthSq() < 1e-8) return new THREE.Vector3(0, 0, 1);
+  return n.normalize();
+}
+
+function addSkeleton(group, pts, landmarks = [], handedness = "Unknown") {
+  const isRight = handedness === "Right";
+  const normal = palmNormal(pts);
+
   CONNECTIONS.forEach(([a, b]) => {
     const hidden = landmarks[a]?.occluded || landmarks[b]?.occluded;
+    const color = colorFor(b === 0 ? a : b);
+    const radius = hidden ? 0.012 : 0.018;
+    const outline = bone(
+      pts[a],
+      pts[b],
+      radius + 0.008,
+      radius + 0.008,
+      new THREE.MeshBasicMaterial({
+        color: 0x111111,
+        transparent: hidden,
+        opacity: hidden ? 0.28 : 0.85,
+        depthTest: false,
+      }),
+    );
     const mesh = bone(
       pts[a],
       pts[b],
-      hidden ? 0.006 : 0.009,
-      hidden ? 0.006 : 0.009,
+      radius,
+      radius,
       new THREE.MeshBasicMaterial({
-        color: colorFor(b === 0 ? a : b),
+        color,
         transparent: hidden,
-        opacity: hidden ? 0.35 : 1,
+        opacity: hidden ? 0.4 : 1,
+        depthTest: false,
       }),
     );
+    if (outline) group.add(outline);
     if (mesh) group.add(mesh);
   });
 
   pts.forEach((p, i) => {
     const hidden = Boolean(landmarks[i]?.occluded);
-    const ball = new THREE.Mesh(
-      new THREE.SphereGeometry(hidden ? 0.015 : 0.019, 20, 16),
-      new THREE.MeshStandardMaterial({
-        color: colorFor(i),
-        roughness: 0.32,
-        metalness: 0.05,
-        transparent: hidden,
-        opacity: hidden ? 0.38 : 1,
-        wireframe: hidden,
-      }),
-    );
-    ball.position.copy(p);
-    group.add(ball);
+    const r = hidden ? 0.026 : 0.032;
+    const color = colorFor(i);
+    const material = new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.28,
+      metalness: 0.04,
+      transparent: hidden,
+      opacity: hidden ? 0.42 : 1,
+      wireframe: hidden,
+      depthTest: false,
+    });
+    let mark;
+    if (isRight) {
+      mark = new THREE.Mesh(new THREE.CylinderGeometry(r, r, r * 0.42, 5), material);
+      mark.quaternion.setFromUnitVectors(Y_UP, normal);
+      const rim = new THREE.Mesh(
+        new THREE.CylinderGeometry(r + 0.006, r + 0.006, r * 0.22, 5),
+        new THREE.MeshBasicMaterial({
+          color: 0xffffff,
+          depthTest: false,
+          transparent: hidden,
+          opacity: hidden ? 0.45 : 1,
+        }),
+      );
+      mark.add(rim);
+    } else {
+      const halo = new THREE.Mesh(
+        new THREE.SphereGeometry(r + 0.007, 22, 18),
+        new THREE.MeshBasicMaterial({
+          color: 0x111111,
+          depthTest: false,
+          transparent: hidden,
+          opacity: hidden ? 0.35 : 0.9,
+        }),
+      );
+      mark = new THREE.Mesh(new THREE.SphereGeometry(r, 22, 18), material);
+      halo.position.copy(p);
+      group.add(halo);
+    }
+    mark.position.copy(p);
+    group.add(mark);
+
+    const el = document.createElement("div");
+    el.className = hidden ? "label3d occluded" : "label3d";
+    el.textContent = hidden ? `${i}*` : String(i);
+    const label = new CSS2DObject(el);
+    label.position.copy(p);
+    label.position.x += 0.045;
+    label.position.y += 0.03;
+    group.add(label);
   });
 }
 
@@ -103,12 +168,14 @@ function skinMaterial() {
     color: 0xe0b89a,
     roughness: 0.48,
     metalness: 0,
-    clearcoat: 0.2,
+    clearcoat: 0.18,
     clearcoatRoughness: 0.55,
-    sheen: 0.35,
+    sheen: 0.3,
     sheenColor: new THREE.Color(0xf4d2bc),
-    side: THREE.FrontSide,
-    depthWrite: true,
+    transparent: true,
+    opacity: 0.38,
+    depthWrite: false,
+    side: THREE.DoubleSide,
   });
 }
 
@@ -158,7 +225,7 @@ function addFinger(group, chain, radii, material) {
   group.add(tip);
 }
 
-function buildAnatomicalHand(pts, landmarks) {
+function buildAnatomicalHand(pts, landmarks, handedness) {
   const group = new THREE.Group();
   const skin = skinMaterial();
   addPalm(group, pts, skin);
@@ -169,13 +236,14 @@ function buildAnatomicalHand(pts, landmarks) {
     if (finger.key === "thumb") radii.unshift(radii[0] * 1.15);
     addFinger(group, chain, radii, skin);
   });
-  addSkeleton(group, pts, landmarks);
+  addSkeleton(group, pts, landmarks, handedness);
   return group;
 }
 
 function disposeHand(hand) {
   if (!hand) return;
   hand.traverse((obj) => {
+    if (obj.element) obj.element.remove();
     if (obj.geometry) obj.geometry.dispose();
     if (obj.material) {
       const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
@@ -271,7 +339,7 @@ export class HandStudio3D {
         v.scene.remove(v.hand);
         disposeHand(v.hand);
       }
-      v.hand = buildAnatomicalHand(aligned.pts, landmarks);
+      v.hand = buildAnatomicalHand(aligned.pts, landmarks, handedness);
       v.scene.add(v.hand);
     });
     this.resize();
