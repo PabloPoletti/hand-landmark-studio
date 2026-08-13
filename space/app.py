@@ -47,7 +47,7 @@ def patch_numpy_aliases():
         "str": str,
     }
     for name, value in aliases.items():
-        if not hasattr(np, name):
+        if name not in np.__dict__:
             setattr(np, name, value)
 
 
@@ -121,9 +121,28 @@ def load_mano_faces():
         return None
 
 
+def is_missing(value):
+    if value is None:
+        return True
+    if isinstance(value, np.ndarray):
+        return value.size == 0
+    if isinstance(value, (list, tuple, dict, str)):
+        return len(value) == 0
+    return False
+
+
+def first_present(*values):
+    for value in values:
+        if not is_missing(value):
+            return value
+    return None
+
+
 def looks_like_image(value):
-    if value is None or isinstance(value, (bool, int, float)):
+    if value is None or isinstance(value, (bool, int, float, np.bool_, np.integer, np.floating)):
         return False
+    if isinstance(value, np.ndarray):
+        return value.ndim >= 2 and value.size > 16
     if isinstance(value, str):
         text = value.strip()
         return (
@@ -191,9 +210,11 @@ def as_points(values):
 
 
 def as_right(value):
-    if value is None:
+    if is_missing(value):
         return True
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, np.ndarray):
+        value = value.reshape(-1)[0]
+    elif isinstance(value, (list, tuple)):
         value = value[0]
     try:
         return float(value) >= 0.5
@@ -202,8 +223,10 @@ def as_right(value):
 
 
 def parse_right_hint(value):
-    if value is None or value == "":
+    if is_missing(value) or value == "":
         return None
+    if isinstance(value, np.ndarray):
+        value = value.reshape(-1)[0]
     if isinstance(value, str):
         text = value.strip().lower()
         if text in {"left", "izquierda", "l", "false", "0"}:
@@ -219,7 +242,7 @@ def anatomy_is_right(points_2d, points_3d=None):
     if abs(float(thumb[0]) - float(pinky[0])) < 8:
         return None
     seeing_back = True
-    if points_3d is not None and len(points_3d) > 17:
+    if not is_missing(points_3d) and len(points_3d) > 17:
         normal = np.cross(points_3d[5] - points_3d[0], points_3d[17] - points_3d[0])
         seeing_back = float(normal[2]) < 0
     thumb_left = float(thumb[0]) < float(pinky[0])
@@ -241,7 +264,7 @@ def fit_to_bbox(points_xy, bbox, pad=0.12):
 
 
 def mostly_inside(points_xy, bbox):
-    if bbox is None or len(bbox) < 4:
+    if is_missing(bbox) or len(bbox) < 4:
         return True
     x1, y1, x2, y2 = [float(v) for v in bbox[:4]]
     pad_x, pad_y = (x2 - x1) * 0.3, (y2 - y1) * 0.3
@@ -288,18 +311,19 @@ def infer(image_rgb, is_right_hint=None):
     bgr = img[:, :, ::-1].copy()
     height, width = bgr.shape[:2]
     pipe = get_pipe()
-    first = pipe.predict(bgr, hand_conf=0.15)
+    raw_first = pipe.predict(bgr, hand_conf=0.15)
+    first = [] if raw_first is None else list(raw_first)
     hint = parse_right_hint(is_right_hint)
     bboxes = []
     rights = []
     for out in first:
         bbox = out.get("hand_bbox")
         preds = out.get("wilor_preds") or {}
-        keypoints_2d = preds.get("pred_keypoints_2d")
-        keypoints_3d = preds.get("pred_keypoints_3d")
+        keypoints_2d = first_present(preds.get("pred_keypoints_2d"))
+        keypoints_3d = first_present(preds.get("pred_keypoints_3d"))
         yolo_right = as_right(out.get("is_right", 1))
         chosen = yolo_right
-        if keypoints_2d is not None and keypoints_3d is not None:
+        if not is_missing(keypoints_2d) and not is_missing(keypoints_3d):
             guessed = anatomy_is_right(as_points(keypoints_2d)[:, :2], as_points(keypoints_3d))
             if guessed is not None:
                 chosen = guessed
@@ -322,33 +346,33 @@ def infer(image_rgb, is_right_hint=None):
     hands = []
     for index, out in enumerate(outputs):
         preds = out.get("wilor_preds") or {}
-        keypoints_2d = preds.get("pred_keypoints_2d")
-        keypoints_3d = preds.get("pred_keypoints_3d")
-        if keypoints_2d is None or keypoints_3d is None:
+        keypoints_2d = first_present(preds.get("pred_keypoints_2d"))
+        keypoints_3d = first_present(preds.get("pred_keypoints_3d"))
+        if is_missing(keypoints_2d) or is_missing(keypoints_3d):
             continue
         points_3d = as_points(keypoints_3d)
         count = min(21, len(points_3d))
         if count < 21:
             continue
         bbox = out.get("hand_bbox")
-        frame_box = bbox if bbox is not None and len(bbox) >= 4 else [0, 0, width, height]
+        frame_box = bbox if not is_missing(bbox) and len(bbox) >= 4 else [0, 0, width, height]
         kp2d = as_points(keypoints_2d)[:, :2]
-        cam = preds.get("pred_cam") or preds.get("cam")
-        projected = project_with_cam(points_3d[:count], cam, width, height) if cam is not None else None
-        if projected is not None and mostly_inside(projected, frame_box):
-            points_2d = projected
-        elif mostly_inside(kp2d[:count], frame_box):
+        cam = first_present(preds.get("pred_cam"), preds.get("cam"))
+        projected = project_with_cam(points_3d[:count], cam, width, height) if not is_missing(cam) else None
+        if mostly_inside(kp2d[:count], frame_box):
             points_2d = kp2d[:count].astype(np.float64)
+        elif projected is not None and mostly_inside(projected, frame_box):
+            points_2d = projected
         else:
             points_2d = points_3d[:count, :2].copy()
-            if bbox is not None and len(bbox) >= 4:
+            if not is_missing(bbox) and len(bbox) >= 4:
                 points_2d = fit_to_bbox(points_2d, bbox, pad=0.08)
         hidden = occlusion_flags(points_3d[:count])
         is_right = as_right(rights[index] if index < len(rights) else out.get("is_right", 1))
         hand = {
             "hand": index + 1,
             "is_right": is_right,
-            "bbox": [float(v) for v in bbox[:4]] if bbox is not None else None,
+            "bbox": [float(v) for v in bbox[:4]] if not is_missing(bbox) else None,
             "landmarks": [
                 {
                     "id": joint,
@@ -363,8 +387,8 @@ def infer(image_rgb, is_right_hint=None):
                 for joint in range(count)
             ],
         }
-        verts = preds.get("pred_vertices")
-        if verts is not None:
+        verts = first_present(preds.get("pred_vertices"))
+        if not is_missing(verts):
             points_v = as_points(verts)
             hand["vertices"] = [
                 [float(row[0]), float(row[1]), float(row[2])] for row in points_v
