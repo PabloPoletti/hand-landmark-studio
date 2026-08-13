@@ -129,7 +129,7 @@ function imageSize(image) {
 
 function toDetectCanvas(image) {
   const { width, height } = imageSize(image);
-  const scale = Math.min(1, 1280 / Math.max(width, height, 1));
+  const scale = Math.min(1, 1600 / Math.max(width, height, 1));
   const detectCanvas = document.createElement("canvas");
   detectCanvas.width = Math.max(1, Math.round(width * scale));
   detectCanvas.height = Math.max(1, Math.round(height * scale));
@@ -198,13 +198,6 @@ function pentagonPath(x, y, r) {
 function drawLandmarkShape(x, y, r, color, isRight, hidden) {
   ctx.save();
   ctx.globalAlpha = hidden ? 0.55 : 1;
-  if (isRight) pentagonPath(x, y, r + 1.6);
-  else {
-    ctx.beginPath();
-    ctx.arc(x, y, r + 1.6, 0, Math.PI * 2);
-  }
-  ctx.fillStyle = "#111";
-  ctx.fill();
   if (isRight) pentagonPath(x, y, r);
   else {
     ctx.beginPath();
@@ -212,19 +205,16 @@ function drawLandmarkShape(x, y, r, color, isRight, hidden) {
   }
   if (hidden) {
     ctx.strokeStyle = color;
-    ctx.lineWidth = 2.4;
+    ctx.lineWidth = 1.6;
     ctx.setLineDash([3, 2]);
     ctx.stroke();
     ctx.setLineDash([]);
-  } else if (isRight) {
-    ctx.fillStyle = color;
-    ctx.fill();
-    ctx.strokeStyle = "#fff";
-    ctx.lineWidth = 2;
-    ctx.stroke();
   } else {
     ctx.fillStyle = color;
     ctx.fill();
+    ctx.strokeStyle = isRight ? "#fff" : color;
+    ctx.lineWidth = isRight ? 1.4 : 1;
+    ctx.stroke();
   }
   ctx.restore();
 }
@@ -237,19 +227,16 @@ function drawOverlay(image, landmarks, handedness) {
   const px = (lm) => ({ x: fit.x + lm.x * fit.w, y: fit.y + lm.y * fit.h });
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  const stroke = Math.max(4, canvas.width / 140);
+  const stroke = Math.max(1.8, canvas.width / 260);
   CONNECTIONS.forEach(([a, b]) => {
     const pa = px(landmarks[a]);
     const pb = px(landmarks[b]);
     const hidden = isOccluded(landmarks[a]) || isOccluded(landmarks[b]);
-    ctx.globalAlpha = hidden ? 0.45 : 1;
-    ctx.setLineDash(hidden ? [8, 5] : []);
+    ctx.globalAlpha = hidden ? 0.5 : 1;
+    ctx.setLineDash(hidden ? [6, 4] : []);
     ctx.beginPath();
     ctx.moveTo(pa.x, pa.y);
     ctx.lineTo(pb.x, pb.y);
-    ctx.strokeStyle = "#111";
-    ctx.lineWidth = stroke + 3;
-    ctx.stroke();
     ctx.strokeStyle = colorFor(b === 0 ? a : b);
     ctx.lineWidth = stroke;
     ctx.stroke();
@@ -257,7 +244,7 @@ function drawOverlay(image, landmarks, handedness) {
   ctx.setLineDash([]);
   ctx.globalAlpha = 1;
 
-  const r = Math.max(5.5, canvas.width / 120);
+  const r = Math.max(4, canvas.width / 150);
   const font = Math.max(12, canvas.width / 56);
   landmarks.forEach((lm, i) => {
     const p = px(lm);
@@ -269,8 +256,8 @@ function drawOverlay(image, landmarks, handedness) {
     const label = hidden ? `${i}*` : String(i);
     const tx = p.x + r + 3;
     const ty = p.y - r;
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = "rgba(0,0,0,0.8)";
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(17,17,17,0.45)";
     ctx.strokeText(label, tx, ty);
     ctx.fillStyle = "#fff";
     ctx.fillText(label, tx, ty);
@@ -281,11 +268,23 @@ function handednessOf(hand) {
   return hand.handedness?.[0]?.categoryName || hand.handednesses?.[0]?.categoryName || "Unknown";
 }
 
+function photoLandmarks(hand) {
+  const mp = sources.mediapipe?.[activeIndex] || sources.mediapipe?.[0];
+  if (mp?.landmarks?.length === 21) {
+    return mp.landmarks.map((lm, i) => ({
+      x: lm.x,
+      y: lm.y,
+      z: lm.z ?? 0,
+      occluded: Boolean(hand.landmarks[i]?.occluded),
+    }));
+  }
+  return hand.landmarks;
+}
+
 function renderActive() {
   const hand = lastHands[activeIndex];
   if (!hand || !lastImage) return;
-  const landmarks = addOcclusion(hand.landmarks, hand.worldLandmarks);
-  hand.landmarks = landmarks;
+  const landmarks = addOcclusion(photoLandmarks(hand), hand.worldLandmarks);
   drawOverlay(lastImage, landmarks, handednessOf(hand));
   studio?.setHand(hand.worldLandmarks, handednessOf(hand), hand.mesh, landmarks);
   const label = handednessOf(hand) === "Left" ? "izquierda" : "derecha";

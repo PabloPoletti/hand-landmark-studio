@@ -82,13 +82,8 @@ function addSkeleton(group, pts, landmarks = [], handedness = "Unknown") {
   CONNECTIONS.forEach(([a, b]) => {
     const hidden = landmarks[a]?.occluded || landmarks[b]?.occluded;
     const color = colorFor(b === 0 ? a : b);
-    const radius = hidden ? 0.007 : 0.011;
-    const outline = bone(pts[a], pts[b], radius + 0.005, radius + 0.005, overlayMaterial(0x111111, hidden ? 0.28 : 0.9));
+    const radius = hidden ? 0.0035 : 0.0055;
     const mesh = bone(pts[a], pts[b], radius, radius, overlayMaterial(color, hidden ? 0.4 : 1));
-    if (outline) {
-      outline.renderOrder = 20;
-      overlay.add(outline);
-    }
     if (mesh) {
       mesh.renderOrder = 21;
       overlay.add(mesh);
@@ -97,21 +92,17 @@ function addSkeleton(group, pts, landmarks = [], handedness = "Unknown") {
 
   pts.forEach((p, i) => {
     const hidden = Boolean(landmarks[i]?.occluded);
-    const r = hidden ? 0.02 : 0.026;
+    const r = hidden ? 0.016 : 0.02;
     const color = colorFor(i);
     let mark;
     if (isRight) {
-      mark = new THREE.Mesh(new THREE.CylinderGeometry(r, r, r * 0.42, 5), overlayMaterial(color, hidden ? 0.45 : 1));
+      mark = new THREE.Mesh(new THREE.CylinderGeometry(r, r, r * 0.38, 5), overlayMaterial(color, hidden ? 0.45 : 1));
       const rim = new THREE.Mesh(
-        new THREE.CylinderGeometry(r + 0.006, r + 0.006, r * 0.18, 5),
+        new THREE.CylinderGeometry(r + 0.003, r + 0.003, r * 0.14, 5),
         overlayMaterial(0xffffff, hidden ? 0.45 : 1),
       );
       mark.add(rim);
     } else {
-      const halo = new THREE.Mesh(new THREE.SphereGeometry(r + 0.006, 20, 16), overlayMaterial(0x111111, hidden ? 0.35 : 1));
-      halo.position.copy(p);
-      halo.renderOrder = 22;
-      overlay.add(halo);
       mark = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 16), overlayMaterial(color, hidden ? 0.45 : 1));
     }
     mark.position.copy(p);
