@@ -51,11 +51,12 @@ function alignmentFromLandmarks(world, handedness) {
   };
 }
 
-function bone(a, b, radius, material) {
+function bone(a, b, r0, r1, material) {
   const dir = new THREE.Vector3().subVectors(b, a);
   const len = dir.length();
   if (len < 1e-5) return null;
-  const geo = new THREE.CylinderGeometry(radius, radius, len, 18, 1, false);
+  const top = r1 ?? r0;
+  const geo = new THREE.CylinderGeometry(top, r0, len, 20, 1, false);
   const mesh = new THREE.Mesh(geo, material);
   mesh.position.copy(a).add(b).multiplyScalar(0.5);
   mesh.quaternion.setFromUnitVectors(Y_UP, dir.clone().normalize());
@@ -68,7 +69,8 @@ function addSkeleton(group, pts, landmarks = []) {
     const mesh = bone(
       pts[a],
       pts[b],
-      hidden ? 0.007 : 0.011,
+      hidden ? 0.006 : 0.009,
+      hidden ? 0.006 : 0.009,
       new THREE.MeshBasicMaterial({
         color: colorFor(b === 0 ? a : b),
         transparent: hidden,
@@ -96,112 +98,77 @@ function addSkeleton(group, pts, landmarks = []) {
   });
 }
 
-function buildManoHand(pts, meshData, apply, landmarks) {
-  const group = new THREE.Group();
-  const verts = meshData.vertices.map((v) => apply(v));
-  const geo = new THREE.BufferGeometry();
-  const pos = new Float32Array(verts.length * 3);
-  verts.forEach((v, i) => {
-    pos[i * 3] = v.x;
-    pos[i * 3 + 1] = v.y;
-    pos[i * 3 + 2] = v.z;
-  });
-  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-  geo.setIndex(meshData.faces.flat());
-  geo.computeVertexNormals();
-
-  const skin = new THREE.MeshPhysicalMaterial({
-    color: 0xd4b39a,
-    roughness: 0.45,
-    metalness: 0.0,
-    clearcoat: 0.28,
-    clearcoatRoughness: 0.5,
-    sheen: 0.5,
-    sheenRoughness: 0.6,
-    sheenColor: new THREE.Color(0xf3d4c0),
-    transparent: true,
-    opacity: 0.88,
-    side: THREE.DoubleSide,
+function skinMaterial() {
+  return new THREE.MeshPhysicalMaterial({
+    color: 0xe0b89a,
+    roughness: 0.48,
+    metalness: 0,
+    clearcoat: 0.2,
+    clearcoatRoughness: 0.55,
+    sheen: 0.35,
+    sheenColor: new THREE.Color(0xf4d2bc),
+    side: THREE.FrontSide,
     depthWrite: true,
   });
-  group.add(new THREE.Mesh(geo, skin));
-  addSkeleton(group, pts, landmarks);
-  return group;
 }
 
-function palmGeometry(pts) {
-  const ids = [0, 1, 5, 9, 13, 17];
-  const ring = ids.map((i) => pts[i]);
-  const n = new THREE.Vector3()
-    .crossVectors(
-      new THREE.Vector3().subVectors(pts[5], pts[0]),
-      new THREE.Vector3().subVectors(pts[17], pts[0]),
-    )
-    .normalize();
-  const thick = 0.018;
-  const top = ring.map((p) => p.clone().addScaledVector(n, thick));
-  const bot = ring.map((p) => p.clone().addScaledVector(n, -thick));
-  const cTop = new THREE.Vector3();
-  const cBot = new THREE.Vector3();
-  top.forEach((p) => cTop.add(p));
-  bot.forEach((p) => cBot.add(p));
-  cTop.multiplyScalar(1 / top.length);
-  cBot.multiplyScalar(1 / bot.length);
+function addPalm(group, pts, material) {
+  const ids = [0, 5, 9, 13, 17];
+  const center = new THREE.Vector3();
+  ids.forEach((id) => center.add(pts[id]));
+  center.multiplyScalar(1 / ids.length);
+  center.lerp(new THREE.Vector3().addVectors(pts[0], pts[9]).multiplyScalar(0.5), 0.25);
 
-  const positions = [];
-  const push = (a, b, c) => {
-    positions.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
-  };
-  for (let i = 0; i < top.length; i++) {
-    const j = (i + 1) % top.length;
-    push(cTop, top[i], top[j]);
-    push(cBot, bot[j], bot[i]);
-    push(top[i], bot[i], bot[j]);
-    push(top[i], bot[j], top[j]);
+  const across = pts[17].clone().sub(pts[5]);
+  const along = pts[9].clone().sub(pts[0]);
+  let normal = new THREE.Vector3().crossVectors(pts[5].clone().sub(pts[0]), pts[17].clone().sub(pts[0]));
+  if (normal.lengthSq() < 1e-8) normal = new THREE.Vector3(0, 0, 1);
+  normal.normalize();
+  const x = across.lengthSq() < 1e-8 ? new THREE.Vector3(1, 0, 0) : across.clone().normalize();
+  const y = along.lengthSq() < 1e-8 ? new THREE.Vector3(0, 1, 0) : along.clone().normalize();
+  const z = new THREE.Vector3().crossVectors(x, y).normalize();
+  y.crossVectors(z, x).normalize();
+
+  const palm = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 20), material);
+  palm.position.copy(center);
+  palm.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
+  palm.scale.set(across.length() * 0.58, along.length() * 0.46, Math.max(0.075, across.length() * 0.2));
+  group.add(palm);
+
+  const thenar = new THREE.Mesh(new THREE.SphereGeometry(across.length() * 0.26, 20, 16), material);
+  thenar.position.copy(pts[0].clone().add(pts[1]).add(pts[5]).multiplyScalar(1 / 3));
+  group.add(thenar);
+}
+
+function addFinger(group, chain, radii, material) {
+  for (let i = 0; i < chain.length - 1; i++) {
+    const r0 = radii[i];
+    const r1 = radii[Math.min(i + 1, radii.length - 1)];
+    const mesh = bone(chain[i], chain[i + 1], r0, r1, material);
+    if (mesh) group.add(mesh);
+    const knuckle = new THREE.Mesh(new THREE.SphereGeometry(r0 * 1.05, 20, 16), material);
+    knuckle.position.copy(chain[i]);
+    group.add(knuckle);
   }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-  geo.computeVertexNormals();
-  return geo;
+  const tip = new THREE.Mesh(
+    new THREE.SphereGeometry(radii[radii.length - 1] * 1.08, 20, 16),
+    material,
+  );
+  tip.position.copy(chain[chain.length - 1]);
+  group.add(tip);
 }
 
-function buildGhostHand(pts, landmarks) {
+function buildAnatomicalHand(pts, landmarks) {
   const group = new THREE.Group();
-  const skin = new THREE.MeshPhysicalMaterial({
-    color: 0xcbb7a6,
-    roughness: 0.4,
-    metalness: 0.02,
-    clearcoat: 0.12,
-    transparent: true,
-    opacity: 0.36,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-  });
-
-  group.add(new THREE.Mesh(palmGeometry(pts), skin));
-  [
-    [0, 1, 5],
-    [0, 5, 9],
-    [0, 9, 13],
-    [0, 13, 17],
-    [5, 9, 13],
-    [9, 13, 17],
-  ].forEach(([a, b, c]) => {
-    const geo = new THREE.BufferGeometry().setFromPoints([pts[a], pts[b], pts[c]]);
-    geo.setIndex([0, 1, 2]);
-    geo.computeVertexNormals();
-    group.add(new THREE.Mesh(geo, skin));
-  });
-
+  const skin = skinMaterial();
+  addPalm(group, pts, skin);
   FINGER_CHAINS.forEach((finger) => {
     const chain = finger.ids.map((id) => pts[id]);
     if (finger.key === "thumb") chain.unshift(pts[0]);
-    for (let i = 0; i < chain.length - 1; i++) {
-      const mesh = bone(chain[i], chain[i + 1], 0.028, skin);
-      if (mesh) group.add(mesh);
-    }
+    const radii = finger.radii.map((r) => r * 1.7);
+    if (finger.key === "thumb") radii.unshift(radii[0] * 1.15);
+    addFinger(group, chain, radii, skin);
   });
-
   addSkeleton(group, pts, landmarks);
   return group;
 }
@@ -299,15 +266,12 @@ export class HandStudio3D {
 
   setHand(worldLandmarks, handedness, mesh, landmarks = []) {
     const aligned = alignmentFromLandmarks(worldLandmarks, handedness);
-    const hasMesh = mesh?.vertices?.length && mesh?.faces?.length;
     Object.values(this.views).forEach((v) => {
       if (v.hand) {
         v.scene.remove(v.hand);
         disposeHand(v.hand);
       }
-      v.hand = hasMesh
-        ? buildManoHand(aligned.pts, mesh, aligned.apply, landmarks)
-        : buildGhostHand(aligned.pts, landmarks);
+      v.hand = buildAnatomicalHand(aligned.pts, landmarks);
       v.scene.add(v.hand);
     });
     this.resize();
