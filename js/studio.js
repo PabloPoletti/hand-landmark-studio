@@ -1,5 +1,5 @@
-import { CONNECTIONS, NAMES, colorFor } from "./schema.js?v=29";
-import { predictWilor, wilorToHands } from "./wilor.js?v=29";
+import { CONNECTIONS, NAMES, colorFor } from "./schema.js?v=30";
+import { predictWilor, wilorToHands } from "./wilor.js?v=30";
 
 const LOCAL_BASE = new URL("../vendor/mediapipe/", import.meta.url);
 const MODEL = new URL("hand_landmarker.task", LOCAL_BASE).href;
@@ -106,7 +106,7 @@ async function initModel() {
     "Modelo de manos",
   );
   try {
-    const three = await import("./hand3d.js?v=29");
+    const three = await import("./hand3d.js?v=30");
     studio = new three.HandStudio3D();
   } catch (err) {
     console.warn("Vista 3D no disponible", err);
@@ -268,43 +268,69 @@ function addOcclusion(landmarks, world) {
   });
 }
 
-function pentagonPath(x, y, r) {
-  ctx.beginPath();
-  for (let i = 0; i < 5; i++) {
-    const angle = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
-    const px = x + r * Math.cos(angle);
-    const py = y + r * Math.sin(angle);
-    if (i === 0) ctx.moveTo(px, py);
-    else ctx.lineTo(px, py);
+function markPath(x, y, r, isRight) {
+  if (isRight) {
+    ctx.beginPath();
+    for (let i = 0; i < 5; i++) {
+      const angle = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
+      const px = x + r * Math.cos(angle);
+      const py = y + r * Math.sin(angle);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    return;
   }
-  ctx.closePath();
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
 }
 
 function drawLandmarkShape(x, y, r, color, isRight, hidden) {
   ctx.save();
-  ctx.globalAlpha = hidden ? 0.55 : 1;
-  if (isRight) pentagonPath(x, y, r + 2.2);
-  else {
-    ctx.beginPath();
-    ctx.arc(x, y, r + 2.2, 0, Math.PI * 2);
-  }
+  ctx.globalAlpha = hidden ? 0.5 : 1;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = r * 1.6;
+  markPath(x, y, r + 3.4, isRight);
   ctx.fillStyle = "#fff";
   ctx.fill();
-  if (isRight) pentagonPath(x, y, r);
-  else {
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-  }
+  ctx.shadowBlur = 0;
+  markPath(x, y, r, isRight);
   if (hidden) {
     ctx.strokeStyle = color;
-    ctx.lineWidth = 2.6;
-    ctx.setLineDash([3, 2]);
+    ctx.lineWidth = Math.max(2.4, r * 0.28);
+    ctx.setLineDash([4, 3]);
     ctx.stroke();
     ctx.setLineDash([]);
   } else {
     ctx.fillStyle = color;
     ctx.fill();
   }
+  ctx.globalAlpha = hidden ? 0.22 : 0.55;
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.arc(x - r * 0.28, y - r * 0.3, r * 0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawBone(pa, pb, color, width, hidden) {
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.globalAlpha = hidden ? 0.45 : 1;
+  ctx.setLineDash(hidden ? [7, 5] : []);
+  ctx.beginPath();
+  ctx.moveTo(pa.x, pa.y);
+  ctx.lineTo(pb.x, pb.y);
+  ctx.strokeStyle = "rgba(255,255,255,0.92)";
+  ctx.lineWidth = width + 3.2;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(pa.x, pa.y);
+  ctx.lineTo(pb.x, pb.y);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -312,28 +338,18 @@ function drawOverlay(image, landmarks, handedness) {
   const fit = drawPhoto(image);
   if (!fit || !landmarks?.length) return;
   const isRight = handedness === "Right";
-
   const px = (lm) => ({ x: fit.x + lm.x * fit.w, y: fit.y + lm.y * fit.h });
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  const stroke = Math.max(1.8, canvas.width / 260);
+  const stroke = Math.max(2.6, canvas.width / 210);
   CONNECTIONS.forEach(([a, b]) => {
-    const pa = px(landmarks[a]);
-    const pb = px(landmarks[b]);
-    const hidden = isOccluded(landmarks[a]) || isOccluded(landmarks[b]);
-    ctx.globalAlpha = hidden ? 0.5 : 1;
-    ctx.setLineDash(hidden ? [6, 4] : []);
-    ctx.beginPath();
-    ctx.moveTo(pa.x, pa.y);
-    ctx.lineTo(pb.x, pb.y);
-    ctx.strokeStyle = colorFor(b === 0 ? a : b);
-    ctx.lineWidth = stroke;
-    ctx.stroke();
+    drawBone(
+      px(landmarks[a]),
+      px(landmarks[b]),
+      colorFor(b === 0 ? a : b),
+      stroke,
+      isOccluded(landmarks[a]) || isOccluded(landmarks[b]),
+    );
   });
-  ctx.setLineDash([]);
-  ctx.globalAlpha = 1;
-
-  const r = Math.max(8, canvas.width / 88);
+  const r = Math.max(11, canvas.width / 68);
   landmarks.forEach((lm, i) => {
     const p = px(lm);
     drawLandmarkShape(p.x, p.y, r, colorFor(i), isRight, isOccluded(lm));
