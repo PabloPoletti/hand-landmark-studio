@@ -21,21 +21,49 @@ PIPE = None
 MAX_SIDE = 1280
 
 
+def patch_numpy_aliases():
+    # Old chumpy does `from numpy import int, float, bool` (removed in NumPy 1.24+).
+    aliases = {
+        "bool": bool,
+        "int": int,
+        "float": float,
+        "complex": complex,
+        "object": object,
+        "unicode": str,
+        "str": str,
+    }
+    for name, value in aliases.items():
+        if not hasattr(np, name):
+            setattr(np, name, value)
+
+
+patch_numpy_aliases()
+
+
 def pip_install(*args):
     subprocess.check_call([sys.executable, "-m", "pip", "install", *args])
 
 
+def chumpy_imports():
+    patch_numpy_aliases()
+    try:
+        import chumpy  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
 def ensure_chumpy():
-    if importlib.util.find_spec("chumpy") is not None:
+    if chumpy_imports():
         return
-    # chumpy's old setup.py breaks HF build isolation; install at runtime.
+    # Prefer a maintained fork; PyPI chumpy still uses removed NumPy aliases.
     for spec in (
+        ["--no-build-isolation", "--force-reinstall", "git+https://github.com/uyoung-jeong/chumpy.git"],
         ["--no-build-isolation", "chumpy"],
-        ["--no-build-isolation", "git+https://github.com/uyoung-jeong/chumpy.git"],
     ):
         try:
             pip_install(*spec)
-            if importlib.util.find_spec("chumpy") is not None:
+            if chumpy_imports():
                 return
         except Exception:
             continue
