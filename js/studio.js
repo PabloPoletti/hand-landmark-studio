@@ -1,5 +1,5 @@
-import { CONNECTIONS, NAMES, colorFor } from "./schema.js";
-import { predictWilor, wilorToHands } from "./wilor.js";
+import { CONNECTIONS, NAMES, colorFor } from "./schema.js?v=29";
+import { predictWilor, wilorToHands } from "./wilor.js?v=29";
 
 const LOCAL_BASE = new URL("../vendor/mediapipe/", import.meta.url);
 const MODEL = new URL("hand_landmarker.task", LOCAL_BASE).href;
@@ -106,7 +106,7 @@ async function initModel() {
     "Modelo de manos",
   );
   try {
-    const three = await import("./hand3d.js");
+    const three = await import("./hand3d.js?v=29");
     studio = new three.HandStudio3D();
   } catch (err) {
     console.warn("Vista 3D no disponible", err);

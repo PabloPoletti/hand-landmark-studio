@@ -263,27 +263,6 @@ footer {
   touch-action: none;
 }
 
-.label3d {
-  color: #111;
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid rgba(0, 0, 0, 0.28);
-  border-radius: 999px;
-  min-width: 17px;
-  height: 17px;
-  padding: 0 4px;
-  font: 800 11px/17px "Segoe UI", sans-serif;
-  text-align: center;
-  pointer-events: none;
-  user-select: none;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
-}
-
-.label3d.occluded {
-  background: rgba(253, 230, 138, 0.9);
-  color: #78350f;
-  opacity: 0.75;
-}
-
 footer {
   padding: 18px 28px 28px;
 }
