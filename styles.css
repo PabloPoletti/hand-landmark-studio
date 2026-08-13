@@ -224,6 +224,15 @@ footer {
   touch-action: none;
 }
 
+.lm-id {
+  color: #111;
+  font: 700 10px/1 "Segoe UI", sans-serif;
+  text-shadow: 0 0 3px #fff, 0 0 3px #fff;
+  pointer-events: none;
+  user-select: none;
+  transform: translate(8px, -10px);
+}
+
 .lm {
   display: grid;
   place-items: center;
