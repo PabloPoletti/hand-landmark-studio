@@ -9,5 +9,8 @@ huggingface_hub==0.25.2
 scikit-image
 roma
 numpy
+pillow
+fastapi
+uvicorn
 gradio==4.36.1
 spaces==0.51.1

@@ -20,57 +20,63 @@ function parseSseJson(text) {
   return payload;
 }
 
-async function startPredict(dataUrl) {
+function normalizeResult(raw) {
+  let result = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof result === "string") {
+    result = JSON.parse(result);
+  }
+  return result;
+}
+
+async function predictDirect(dataUrl, onStatus) {
+  onStatus?.("Mandando la foto a WiLoR (Hugging Face)…");
+  const response = await fetch(`${WILOR_SPACE}/wilor`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ image: dataUrl }),
+  });
+  if (response.status === 404 || response.status === 410) return null;
+  if (!response.ok) {
+    throw new Error(`WiLoR no respondió (${response.status}). El Space puede estar despertando.`);
+  }
+  return response.json();
+}
+
+async function predictGradio(dataUrl, onStatus) {
   const endpoints = [
     `${WILOR_SPACE}/call/predict`,
     `${WILOR_SPACE}/gradio_api/call/predict`,
   ];
-  let last = null;
-  for (const url of endpoints) {
-    const start = await fetch(url, {
+  let started = null;
+  let url = "";
+  for (const endpoint of endpoints) {
+    const start = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ data: [dataUrl] }),
     });
-    last = { start, url };
-    if (start.ok) return last;
+    if (start.ok) {
+      started = await start.json();
+      url = endpoint;
+      break;
+    }
   }
-  return last;
+  if (!started?.event_id) return null;
+  onStatus?.("Esperando WiLoR… la primera vez puede tardar 1–2 min");
+  const stream = await fetch(`${url}/${started.event_id}`);
+  if (!stream.ok) throw new Error(`WiLoR falló al devolver el resultado (${stream.status}).`);
+  return normalizeResult(parseSseJson(await stream.text()));
 }
 
 export async function predictWilor(file, onStatus) {
-  onStatus?.("Mandando la foto a WiLoR (Hugging Face)…");
   const dataUrl = await fileToDataUrl(file);
-  const { start, url } = await startPredict(dataUrl);
-
-  if (start.status === 404 || start.status === 410) {
-    throw new Error(
-      "El Space todavía no está publicado. Creá una cuenta gratis en huggingface.co y avisame para subirlo.",
-    );
+  let result = await predictDirect(dataUrl, onStatus);
+  if (!result) result = await predictGradio(dataUrl, onStatus);
+  if (!result) {
+    throw new Error("El Space de WiLoR no está publicado o se está reiniciando.");
   }
-  if (!start.ok) {
-    throw new Error(`WiLoR no respondió (${start.status}). El Space puede estar despertando.`);
-  }
-
-  const started = await start.json();
-  const eventId = started.event_id;
-  if (!eventId) throw new Error("El Space no devolvió event_id.");
-
-  onStatus?.("Esperando WiLoR… la primera vez puede tardar 1–2 min");
-  const stream = await fetch(`${url}/${eventId}`);
-  if (!stream.ok) throw new Error(`WiLoR falló al devolver el resultado (${stream.status}).`);
-  const payload = parseSseJson(await stream.text());
-  let result = Array.isArray(payload) ? payload[0] : payload;
-  if (typeof result === "string") {
-    try {
-      result = JSON.parse(result);
-    } catch {
-      throw new Error(result || "WiLoR devolvió un texto inválido.");
-    }
-  }
-  if (!result || result.error) {
-    throw new Error(result?.error || "WiLoR no devolvió landmarks.");
-  }
+  if (result.error) throw new Error(result.error);
+  if (!result.hands?.length) throw new Error("WiLoR no encontró manos en la foto.");
   return result;
 }
 
