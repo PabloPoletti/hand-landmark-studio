@@ -127,6 +127,58 @@ function imageSize(image) {
   };
 }
 
+function handCropBox(landmarks, pad = 0.32) {
+  let minX = 1;
+  let minY = 1;
+  let maxX = 0;
+  let maxY = 0;
+  landmarks.forEach((lm) => {
+    minX = Math.min(minX, lm.x);
+    minY = Math.min(minY, lm.y);
+    maxX = Math.max(maxX, lm.x);
+    maxY = Math.max(maxY, lm.y);
+  });
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  const side = Math.max(maxX - minX, maxY - minY, 0.12) * (1 + pad * 2);
+  return {
+    x: Math.max(0, cx - side / 2),
+    y: Math.max(0, cy - side / 2),
+    w: Math.min(1 - Math.max(0, cx - side / 2), side),
+    h: Math.min(1 - Math.max(0, cy - side / 2), side),
+  };
+}
+
+function cropHandFile(image, landmarks) {
+  const { width, height } = imageSize(image);
+  const box = handCropBox(landmarks);
+  const sx = Math.floor(box.x * width);
+  const sy = Math.floor(box.y * height);
+  const sw = Math.max(48, Math.ceil(box.w * width));
+  const sh = Math.max(48, Math.ceil(box.h * height));
+  const size = Math.max(sw, sh, 256);
+  const crop = document.createElement("canvas");
+  crop.width = size;
+  crop.height = size;
+  const g = crop.getContext("2d");
+  g.fillStyle = "#777";
+  g.fillRect(0, 0, size, size);
+  g.drawImage(image, sx, sy, sw, sh, (size - sw) / 2, (size - sh) / 2, sw, sh);
+  return new Promise((resolve) => {
+    crop.toBlob(
+      (blob) => {
+        if (!blob) {
+          resolve(null);
+          return;
+        }
+        resolve(new File([blob], "hand-crop.png", { type: "image/png" }));
+      },
+      "image/png",
+      0.92,
+    );
+  });
+}
+
 function toDetectCanvas(image) {
   const { width, height } = imageSize(image);
   const scale = Math.min(1, 1600 / Math.max(width, height, 1));
@@ -198,6 +250,13 @@ function pentagonPath(x, y, r) {
 function drawLandmarkShape(x, y, r, color, isRight, hidden) {
   ctx.save();
   ctx.globalAlpha = hidden ? 0.55 : 1;
+  if (isRight) pentagonPath(x, y, r + 2.2);
+  else {
+    ctx.beginPath();
+    ctx.arc(x, y, r + 2.2, 0, Math.PI * 2);
+  }
+  ctx.fillStyle = "#fff";
+  ctx.fill();
   if (isRight) pentagonPath(x, y, r);
   else {
     ctx.beginPath();
@@ -205,16 +264,13 @@ function drawLandmarkShape(x, y, r, color, isRight, hidden) {
   }
   if (hidden) {
     ctx.strokeStyle = color;
-    ctx.lineWidth = 1.6;
+    ctx.lineWidth = 2.6;
     ctx.setLineDash([3, 2]);
     ctx.stroke();
     ctx.setLineDash([]);
   } else {
     ctx.fillStyle = color;
     ctx.fill();
-    ctx.strokeStyle = isRight ? "#fff" : color;
-    ctx.lineWidth = isRight ? 1.4 : 1;
-    ctx.stroke();
   }
   ctx.restore();
 }
@@ -244,23 +300,10 @@ function drawOverlay(image, landmarks, handedness) {
   ctx.setLineDash([]);
   ctx.globalAlpha = 1;
 
-  const r = Math.max(4, canvas.width / 150);
-  const font = Math.max(12, canvas.width / 56);
+  const r = Math.max(8, canvas.width / 88);
   landmarks.forEach((lm, i) => {
     const p = px(lm);
-    const hidden = isOccluded(lm);
-    drawLandmarkShape(p.x, p.y, r, colorFor(i), isRight, hidden);
-    ctx.font = `800 ${font}px Segoe UI, sans-serif`;
-    ctx.textAlign = "left";
-    ctx.textBaseline = "bottom";
-    const label = hidden ? `${i}*` : String(i);
-    const tx = p.x + r + 3;
-    const ty = p.y - r;
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = "rgba(17,17,17,0.45)";
-    ctx.strokeText(label, tx, ty);
-    ctx.fillStyle = "#fff";
-    ctx.fillText(label, tx, ty);
+    drawLandmarkShape(p.x, p.y, r, colorFor(i), isRight, isOccluded(lm));
   });
 }
 
@@ -290,7 +333,7 @@ function renderActive() {
   const label = handednessOf(hand) === "Left" ? "izquierda" : "derecha";
   const hidden = landmarks.filter(isOccluded).length;
   note.textContent = `Mano ${activeIndex + 1} · ${label} · 21 landmarks${
-    hidden ? ` · ${hidden} ocluidos (*)` : ""
+    hidden ? ` · ${hidden} ocluidos` : ""
   }`;
   copyBtn.hidden = false;
   wilorBtn.hidden = false;
@@ -442,7 +485,12 @@ async function refineWithWilor() {
   try {
     const mpHand = sources.mediapipe?.[0];
     const hint = mpHand ? handednessOf(mpHand) === "Right" : null;
-    const result = await predictWilor(lastFile, setStatus, hint);
+    const cropped =
+      mpHand?.landmarks?.length === 21
+        ? await cropHandFile(lastImage, mpHand.landmarks)
+        : null;
+    const payload = cropped || lastFile;
+    const result = await predictWilor(payload, setStatus, hint);
     if (job !== wilorJob) return;
     const hands = wilorToHands(result);
     if (!hands.length) {

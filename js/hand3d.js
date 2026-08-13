@@ -1,6 +1,5 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { CSS2DObject, CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import { CONNECTIONS, FINGER_CHAINS, colorFor } from "./schema.js";
 
 const Y_UP = new THREE.Vector3(0, 1, 0);
@@ -82,7 +81,7 @@ function addSkeleton(group, pts, landmarks = [], handedness = "Unknown") {
   CONNECTIONS.forEach(([a, b]) => {
     const hidden = landmarks[a]?.occluded || landmarks[b]?.occluded;
     const color = colorFor(b === 0 ? a : b);
-    const radius = hidden ? 0.0035 : 0.0055;
+    const radius = hidden ? 0.004 : 0.0065;
     const mesh = bone(pts[a], pts[b], radius, radius, overlayMaterial(color, hidden ? 0.4 : 1));
     if (mesh) {
       mesh.renderOrder = 21;
@@ -92,31 +91,24 @@ function addSkeleton(group, pts, landmarks = [], handedness = "Unknown") {
 
   pts.forEach((p, i) => {
     const hidden = Boolean(landmarks[i]?.occluded);
-    const r = hidden ? 0.016 : 0.02;
+    const r = hidden ? 0.028 : 0.038;
     const color = colorFor(i);
+    const halo = new THREE.Mesh(
+      isRight ? new THREE.CylinderGeometry(r + 0.008, r + 0.008, r * 0.2, 5) : new THREE.SphereGeometry(r + 0.008, 22, 18),
+      overlayMaterial(0xffffff, hidden ? 0.4 : 1),
+    );
+    halo.position.copy(p);
+    halo.renderOrder = 22;
+    overlay.add(halo);
     let mark;
     if (isRight) {
-      mark = new THREE.Mesh(new THREE.CylinderGeometry(r, r, r * 0.38, 5), overlayMaterial(color, hidden ? 0.45 : 1));
-      const rim = new THREE.Mesh(
-        new THREE.CylinderGeometry(r + 0.003, r + 0.003, r * 0.14, 5),
-        overlayMaterial(0xffffff, hidden ? 0.45 : 1),
-      );
-      mark.add(rim);
+      mark = new THREE.Mesh(new THREE.CylinderGeometry(r, r, r * 0.42, 5), overlayMaterial(color, hidden ? 0.45 : 1));
     } else {
-      mark = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 16), overlayMaterial(color, hidden ? 0.45 : 1));
+      mark = new THREE.Mesh(new THREE.SphereGeometry(r, 22, 18), overlayMaterial(color, hidden ? 0.45 : 1));
     }
     mark.position.copy(p);
     mark.renderOrder = 23;
     overlay.add(mark);
-
-    const el = document.createElement("div");
-    el.className = hidden ? "label3d occluded" : "label3d";
-    el.textContent = hidden ? `${i}*` : String(i);
-    const label = new CSS2DObject(el);
-    label.position.copy(p);
-    label.position.x += 0.04;
-    label.position.y += 0.028;
-    overlay.add(label);
   });
 
   group.add(overlay);
@@ -263,12 +255,6 @@ function makeView(container, cameraPos) {
   renderer.toneMappingExposure = 1.12;
   container.appendChild(renderer.domElement);
 
-  const labels = new CSS2DRenderer();
-  labels.domElement.style.position = "absolute";
-  labels.domElement.style.inset = "0";
-  labels.domElement.style.pointerEvents = "none";
-  container.appendChild(labels.domElement);
-
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enablePan = false;
   controls.enableDamping = true;
@@ -287,7 +273,7 @@ function makeView(container, cameraPos) {
   rim.position.set(-0.3, 1.1, -2.1);
   scene.add(rim);
 
-  return { scene, camera, renderer, labels, controls, hand: null };
+  return { scene, camera, renderer, controls, hand: null };
 }
 
 export class HandStudio3D {
@@ -306,7 +292,6 @@ export class HandStudio3D {
       Object.values(this.views).forEach((v) => {
         v.controls.update();
         v.renderer.render(v.scene, v.camera);
-        v.labels.render(v.scene, v.camera);
       });
       requestAnimationFrame(tick);
     };
@@ -321,7 +306,6 @@ export class HandStudio3D {
       v.camera.aspect = w / h;
       v.camera.updateProjectionMatrix();
       v.renderer.setSize(w, h, false);
-      v.labels.setSize(w, h);
     });
   }
 

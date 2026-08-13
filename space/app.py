@@ -318,12 +318,14 @@ def infer(image_rgb, is_right_hint=None):
         count = min(21, len(points_3d))
         if count < 21:
             continue
-        # Camera-space XY matches the 3D pose; drop the weak-perspective 2D
-        # that was landing off the hand.
-        points_2d = points_3d[:count, :2].copy()
         bbox = out.get("hand_bbox")
-        if bbox is not None and len(bbox) >= 4:
-            points_2d = fit_to_bbox(points_2d, bbox, pad=0.08)
+        kp2d = as_points(keypoints_2d)[:, :2]
+        if bbox is not None and len(bbox) >= 4 and mostly_inside(kp2d[:count], bbox):
+            points_2d = kp2d[:count].astype(np.float64)
+        else:
+            points_2d = points_3d[:count, :2].copy()
+            if bbox is not None and len(bbox) >= 4:
+                points_2d = fit_to_bbox(points_2d, bbox, pad=0.08)
         hidden = occlusion_flags(points_3d[:count])
         is_right = as_right(rights[index] if index < len(rights) else out.get("is_right", 1))
         hand = {
