@@ -1,5 +1,4 @@
 import { CONNECTIONS, NAMES, colorFor } from "./schema.js";
-import { drawLandmark2D, isLeftHand } from "./notation.js";
 import { predictWilor, wilorToHands } from "./wilor.js";
 
 const LOCAL_BASE = new URL("../vendor/mediapipe/", import.meta.url);
@@ -163,67 +162,48 @@ function drawPhoto(image) {
   return fit;
 }
 
-function isOccluded(lm) {
-  if (!lm) return false;
-  if (typeof lm.occluded === "boolean") return lm.occluded;
-  if (typeof lm.visibility === "number") return lm.visibility < 0.5;
-  return false;
-}
-
-function addOcclusion(landmarks, world) {
-  const src = world || landmarks;
-  const palm = [0, 5, 9, 13, 17];
-  if (!src?.[0] || landmarks.some((lm) => typeof lm.occluded === "boolean")) {
-    return landmarks;
-  }
-  const palmZ = palm.reduce((sum, id) => sum + (src[id]?.z ?? 0), 0) / palm.length;
-  return landmarks.map((lm, i) => ({
-    ...lm,
-    occluded: !palm.includes(i) && (src[i]?.z ?? 0) > palmZ + 0.012,
-  }));
-}
-
-function drawOverlay(image, landmarks, handedness) {
+function drawOverlay(image, landmarks) {
   const fit = drawPhoto(image);
   if (!fit || !landmarks?.length) return;
-  const left = isLeftHand(handedness);
 
   const px = (lm) => ({ x: fit.x + lm.x * fit.w, y: fit.y + lm.y * fit.h });
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  const stroke = Math.max(2.5, canvas.width / 220);
+  ctx.lineWidth = Math.max(2.5, canvas.width / 220);
   CONNECTIONS.forEach(([a, b]) => {
     const pa = px(landmarks[a]);
     const pb = px(landmarks[b]);
-    const hidden = isOccluded(landmarks[b]);
-    ctx.globalAlpha = hidden ? 0.7 : 1;
-    ctx.setLineDash(hidden ? [7, 5] : []);
-    ctx.lineWidth = stroke;
     ctx.strokeStyle = colorFor(b === 0 ? a : b);
     ctx.beginPath();
     ctx.moveTo(pa.x, pa.y);
     ctx.lineTo(pb.x, pb.y);
     ctx.stroke();
   });
-  ctx.setLineDash([]);
-  ctx.globalAlpha = 1;
 
-  const r = Math.max(4, canvas.width / 150);
+  const r = Math.max(3.5, canvas.width / 160);
   const font = Math.max(11, canvas.width / 64);
   landmarks.forEach((lm, i) => {
     const p = px(lm);
-    const hidden = isOccluded(lm);
-    drawLandmark2D(ctx, p.x, p.y, r, i, left, hidden);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r + 1.4, 0, Math.PI * 2);
+    ctx.fillStyle = "#fff";
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = colorFor(i);
+    ctx.fill();
+
     ctx.font = `700 ${font}px Segoe UI, sans-serif`;
     ctx.textAlign = "left";
     ctx.textBaseline = "bottom";
+    const label = String(i);
     const tx = p.x + r + 2;
     const ty = p.y - r;
     ctx.lineWidth = 3;
     ctx.strokeStyle = "rgba(0,0,0,0.65)";
-    ctx.strokeText(String(i), tx, ty);
+    ctx.strokeText(label, tx, ty);
     ctx.fillStyle = "#fff";
-    ctx.fillText(String(i), tx, ty);
+    ctx.fillText(label, tx, ty);
   });
 }
 
@@ -234,16 +214,10 @@ function handednessOf(hand) {
 function renderActive() {
   const hand = lastHands[activeIndex];
   if (!hand || !lastImage) return;
-  const landmarks = addOcclusion(hand.landmarks, hand.worldLandmarks);
-  hand.landmarks = landmarks;
-  const side = handednessOf(hand);
-  drawOverlay(lastImage, landmarks, side);
-  studio?.setHand(hand.worldLandmarks, side, hand.mesh, landmarks);
-  const label = isLeftHand(side) ? "izquierda · círculo" : "derecha · pentágono";
-  const hidden = landmarks.filter(isOccluded).length;
-  note.textContent = `Mano ${activeIndex + 1} · ${label} · 21 landmarks${
-    hidden ? ` · ${hidden} ocluidos` : ""
-  }`;
+  drawOverlay(lastImage, hand.landmarks);
+  studio?.setHand(hand.worldLandmarks, handednessOf(hand), hand.mesh);
+  const label = handednessOf(hand) === "Left" ? "izquierda" : "derecha";
+  note.textContent = `Mano ${activeIndex + 1} · ${label} · 21 landmarks`;
   copyBtn.hidden = false;
   wilorBtn.hidden = false;
 }
@@ -288,7 +262,7 @@ function renderHandChips() {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "chip" + (i === activeIndex ? " active" : "");
-    const side = isLeftHand(handednessOf(hand)) ? "○ Left" : "⬠ Right";
+    const side = handednessOf(hand) === "Left" ? "Left" : "Right";
     btn.textContent = `Mano ${i + 1} · ${side}`;
     btn.addEventListener("click", () => {
       activeIndex = i;
@@ -389,9 +363,7 @@ wilorBtn.addEventListener("click", async () => {
   if (!lastFile || !lastImage) return;
   wilorBtn.disabled = true;
   try {
-    const mpHand = sources.mediapipe?.[0];
-    const hint = mpHand ? handednessOf(mpHand) === "Right" : null;
-    const result = await predictWilor(lastFile, setStatus, hint);
+    const result = await predictWilor(lastFile, setStatus);
     const hands = wilorToHands(result);
     if (!hands.length) {
       setStatus("WiLoR no encontró manos");
@@ -425,7 +397,6 @@ copyBtn.addEventListener("click", async () => {
         x: Number(lm.x.toFixed(5)),
         y: Number(lm.y.toFixed(5)),
         z: Number(lm.z.toFixed(5)),
-        occluded: Boolean(lm.occluded),
       })),
     },
   ];

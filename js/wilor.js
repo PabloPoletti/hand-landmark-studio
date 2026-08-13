@@ -28,12 +28,12 @@ function normalizeResult(raw) {
   return result;
 }
 
-async function predictDirect(dataUrl, onStatus, isRight) {
+async function predictDirect(dataUrl, onStatus) {
   onStatus?.("Mandando la foto a WiLoR (Hugging Face)…");
   const response = await fetch(`${WILOR_SPACE}/wilor`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ image: dataUrl, is_right: isRight }),
+    body: JSON.stringify({ image: dataUrl }),
   });
   if (response.status === 404 || response.status === 410) return null;
   if (!response.ok) {
@@ -68,9 +68,9 @@ async function predictGradio(dataUrl, onStatus) {
   return normalizeResult(parseSseJson(await stream.text()));
 }
 
-export async function predictWilor(file, onStatus, isRight = null) {
+export async function predictWilor(file, onStatus) {
   const dataUrl = await fileToDataUrl(file);
-  let result = await predictDirect(dataUrl, onStatus, isRight);
+  let result = await predictDirect(dataUrl, onStatus);
   if (!result) result = await predictGradio(dataUrl, onStatus);
   if (!result) {
     throw new Error("El Space de WiLoR no está publicado o se está reiniciando.");
@@ -86,7 +86,6 @@ export function wilorToHands(result) {
       x: lm.x,
       y: lm.y,
       z: lm.z ?? 0,
-      occluded: Boolean(lm.occluded),
     })),
     worldLandmarks: hand.landmarks.map((lm) => ({
       x: lm.X,
