@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { CONNECTIONS, FINGER_CHAINS, colorFor, boneColor } from "./schema.js?v=36";
+import { CONNECTIONS, FINGER_CHAINS, colorFor, boneColor } from "./schema.js?v=37";
 
 const SKIN_SCALE = 1.42;
 const MCP_IDS = new Set([1, 5, 9, 13, 17]);
@@ -20,6 +20,14 @@ function isFiniteVec(v) {
 
 function usableWorld(world) {
   return Array.isArray(world) && world.length >= 21 && world.every((p) => isFiniteVec(toVec(p)));
+}
+
+function meshFitsJoints(pts, mesh, apply) {
+  const verts = mesh.vertices.map((v) => apply(v));
+  if (!verts.length) return false;
+  const meshCenter = verts.reduce((sum, v) => sum.add(v), new THREE.Vector3()).multiplyScalar(1 / verts.length);
+  const jointCenter = pts.reduce((sum, p) => sum.add(p), new THREE.Vector3()).multiplyScalar(1 / pts.length);
+  return meshCenter.distanceTo(jointCenter) < 0.28;
 }
 
 function usableMesh(mesh) {
@@ -421,7 +429,7 @@ export class HandStudio3D {
       let next = null;
       try {
         next =
-          usableMesh(mesh)
+          usableMesh(mesh) && meshFitsJoints(aligned.pts, mesh, aligned.apply)
             ? buildManoHand(aligned.pts, mesh, aligned.apply, landmarks, handedness)
             : buildAnatomicalHand(aligned.pts, landmarks, handedness);
       } catch (err) {

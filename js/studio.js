@@ -1,5 +1,5 @@
-import { CONNECTIONS, NAMES, colorFor, boneColor } from "./schema.js?v=36";
-import { predictWilor, wilorToHands } from "./wilor.js?v=36";
+import { CONNECTIONS, NAMES, colorFor, boneColor } from "./schema.js?v=37";
+import { predictWilor, wilorToHands } from "./wilor.js?v=37";
 
 const LOCAL_BASE = new URL("../vendor/mediapipe/", import.meta.url);
 const MODEL = new URL("hand_landmarker.task", LOCAL_BASE).href;
@@ -107,7 +107,7 @@ async function initModel() {
     "Modelo de manos",
   );
   try {
-    const three = await import("./hand3d.js?v=36");
+    const three = await import("./hand3d.js?v=37");
     studio = new three.HandStudio3D();
   } catch (err) {
     console.warn("Vista 3D no disponible", err);
@@ -470,12 +470,11 @@ function renderActive() {
     ),
   );
   drawOverlay(lastImage, landmarks, handednessOf(hand));
-  const world = repairLandmarks(
-    mp?.worldLandmarks ||
-      hand.worldLandmarks ||
-      landmarks,
-  );
-  const mesh = activeSource === "wilor" && hand.mesh ? hand.mesh : null;
+  const wilorWorld = hand.worldLandmarks?.length >= 21 ? hand.worldLandmarks : null;
+  const mpWorld = mp?.worldLandmarks?.length >= 21 ? mp.worldLandmarks : null;
+  const useWilorMesh = activeSource === "wilor" && hand.mesh && wilorWorld;
+  const world = useWilorMesh ? wilorWorld : repairLandmarks(mpWorld || wilorWorld || landmarks);
+  const mesh = useWilorMesh ? hand.mesh : null;
   try {
     studio?.setHand(world, handednessOf(hand), mesh, landmarks);
   } catch (err) {
