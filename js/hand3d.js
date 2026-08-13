@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { CONNECTIONS, FINGER_CHAINS, colorFor } from "./schema.js";
+import { CONNECTIONS, FINGER_CHAINS, colorFor, boneColor } from "./schema.js";
 
 const SKIN_SCALE = 1.72;
 const SURFACE_LIFT = 0.018;
@@ -112,9 +112,9 @@ function addSkeleton(group, pts, landmarks = [], handedness = "Unknown", compact
 
   CONNECTIONS.forEach(([a, b]) => {
     const hidden = landmarks[a]?.occluded || landmarks[b]?.occluded;
-    const color = colorFor(b === 0 ? a : b);
-    const radius = hidden ? 0.005 : 0.008;
-    const mesh = bone(outer[a], outer[b], radius, radius, overlayMaterial(color, hidden ? 0.45 : 1));
+    const color = boneColor(b === 0 ? a : b);
+    const radius = hidden ? 0.0036 : 0.0052;
+    const mesh = bone(outer[a], outer[b], radius, radius, overlayMaterial(color, hidden ? 0.55 : 0.92));
     if (mesh) {
       mesh.renderOrder = 21;
       overlay.add(mesh);
@@ -123,12 +123,12 @@ function addSkeleton(group, pts, landmarks = [], handedness = "Unknown", compact
 
   outer.forEach((p, i) => {
     const hidden = Boolean(landmarks[i]?.occluded);
-    const r = hidden ? 0.034 : 0.046;
+    const r = hidden ? 0.02 : 0.026;
     const color = colorFor(i);
     const halo = new THREE.Mesh(
       isRight
-        ? new THREE.CylinderGeometry(r + 0.01, r + 0.01, r * 0.22, 5)
-        : new THREE.SphereGeometry(r + 0.01, 28, 22),
+        ? new THREE.CylinderGeometry(r + 0.006, r + 0.006, r * 0.22, 5)
+        : new THREE.SphereGeometry(r + 0.006, 28, 22),
       overlayMaterial(0xffffff, hidden ? 0.45 : 1),
     );
     halo.position.copy(p);
@@ -150,14 +150,14 @@ function addSkeleton(group, pts, landmarks = [], handedness = "Unknown", compact
 
 function skinMaterial() {
   return new THREE.MeshPhysicalMaterial({
-    color: 0xe8c4a8,
-    roughness: 0.34,
+    color: 0xb07a58,
+    roughness: 0.52,
     metalness: 0.02,
-    clearcoat: 0.38,
-    clearcoatRoughness: 0.38,
-    sheen: 0.55,
-    sheenRoughness: 0.35,
-    sheenColor: new THREE.Color(0xf7d6c2),
+    clearcoat: 0.12,
+    clearcoatRoughness: 0.55,
+    sheen: 0.18,
+    sheenRoughness: 0.55,
+    sheenColor: new THREE.Color(0xc99674),
     side: THREE.FrontSide,
     depthWrite: true,
     polygonOffset: true,
@@ -264,16 +264,16 @@ function buildManoHand(pts, meshData, apply, landmarks, handedness) {
   const mesh = new THREE.Mesh(
     geo,
     new THREE.MeshPhysicalMaterial({
-      color: 0xe8c4a8,
-      roughness: 0.32,
-      metalness: 0.03,
-      clearcoat: 0.4,
-      clearcoatRoughness: 0.36,
-      sheen: 0.58,
-      sheenRoughness: 0.32,
-      sheenColor: new THREE.Color(0xf7d6c2),
+      color: 0xb07a58,
+      roughness: 0.5,
+      metalness: 0.02,
+      clearcoat: 0.12,
+      clearcoatRoughness: 0.55,
+      sheen: 0.18,
+      sheenRoughness: 0.55,
+      sheenColor: new THREE.Color(0xc99674),
       transparent: true,
-      opacity: 0.94,
+      opacity: 0.98,
       side: THREE.FrontSide,
       depthWrite: true,
       polygonOffset: true,
@@ -315,7 +315,7 @@ function disposeHand(hand) {
 
 function makeView(container, cameraPos) {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xd6d6d6);
+  scene.background = new THREE.Color(0xc5c5c5);
   const camera = new THREE.PerspectiveCamera(32, 1, 0.01, 20);
   camera.position.copy(cameraPos);
   camera.lookAt(0, 0, 0);
@@ -328,13 +328,13 @@ function makeView(container, cameraPos) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.2;
+  renderer.toneMappingExposure = 0.9;
   container.appendChild(renderer.domElement);
 
   try {
     const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    scene.environmentIntensity = 0.62;
+    scene.environmentIntensity = 0.32;
     pmrem.dispose();
   } catch {
     /* luces direccionales alcanzan si el env map no carga */
@@ -346,15 +346,15 @@ function makeView(container, cameraPos) {
   controls.minDistance = 1.4;
   controls.maxDistance = 5;
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.32));
-  scene.add(new THREE.HemisphereLight(0xf7f1e8, 0x8b8680, 0.86));
-  const key = new THREE.DirectionalLight(0xfff7ee, 1.12);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.22));
+  scene.add(new THREE.HemisphereLight(0xe8ddd2, 0x5a534c, 0.62));
+  const key = new THREE.DirectionalLight(0xfff1e4, 0.82);
   key.position.set(1.6, 2.4, 2.0);
   scene.add(key);
-  const fill = new THREE.DirectionalLight(0xd7e4ff, 0.48);
+  const fill = new THREE.DirectionalLight(0xc5d0e0, 0.28);
   fill.position.set(-2.1, 0.5, 0.9);
   scene.add(fill);
-  const rim = new THREE.DirectionalLight(0xfff1dc, 0.58);
+  const rim = new THREE.DirectionalLight(0xe8d8c4, 0.32);
   rim.position.set(-0.3, 1.1, -2.1);
   scene.add(rim);
 

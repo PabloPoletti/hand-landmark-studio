@@ -1,5 +1,5 @@
-import { CONNECTIONS, NAMES, colorFor } from "./schema.js?v=30";
-import { predictWilor, wilorToHands } from "./wilor.js?v=30";
+import { CONNECTIONS, NAMES, colorFor, boneColor } from "./schema.js?v=31";
+import { predictWilor, wilorToHands } from "./wilor.js?v=31";
 
 const LOCAL_BASE = new URL("../vendor/mediapipe/", import.meta.url);
 const MODEL = new URL("hand_landmarker.task", LOCAL_BASE).href;
@@ -106,7 +106,7 @@ async function initModel() {
     "Modelo de manos",
   );
   try {
-    const three = await import("./hand3d.js?v=30");
+    const three = await import("./hand3d.js?v=31");
     studio = new three.HandStudio3D();
   } catch (err) {
     console.warn("Vista 3D no disponible", err);
@@ -289,8 +289,8 @@ function drawLandmarkShape(x, y, r, color, isRight, hidden) {
   ctx.save();
   ctx.globalAlpha = hidden ? 0.5 : 1;
   ctx.shadowColor = color;
-  ctx.shadowBlur = r * 1.6;
-  markPath(x, y, r + 3.4, isRight);
+  ctx.shadowBlur = r * 0.9;
+  markPath(x, y, r + 2.1, isRight);
   ctx.fillStyle = "#fff";
   ctx.fill();
   ctx.shadowBlur = 0;
@@ -322,8 +322,8 @@ function drawBone(pa, pb, color, width, hidden) {
   ctx.beginPath();
   ctx.moveTo(pa.x, pa.y);
   ctx.lineTo(pb.x, pb.y);
-  ctx.strokeStyle = "rgba(255,255,255,0.92)";
-  ctx.lineWidth = width + 3.2;
+  ctx.strokeStyle = "rgba(255,255,255,0.42)";
+  ctx.lineWidth = width + 1.6;
   ctx.stroke();
   ctx.beginPath();
   ctx.moveTo(pa.x, pa.y);
@@ -339,17 +339,17 @@ function drawOverlay(image, landmarks, handedness) {
   if (!fit || !landmarks?.length) return;
   const isRight = handedness === "Right";
   const px = (lm) => ({ x: fit.x + lm.x * fit.w, y: fit.y + lm.y * fit.h });
-  const stroke = Math.max(2.6, canvas.width / 210);
+  const stroke = Math.max(1.7, canvas.width / 280);
   CONNECTIONS.forEach(([a, b]) => {
     drawBone(
       px(landmarks[a]),
       px(landmarks[b]),
-      colorFor(b === 0 ? a : b),
+      boneColor(b === 0 ? a : b),
       stroke,
       isOccluded(landmarks[a]) || isOccluded(landmarks[b]),
     );
   });
-  const r = Math.max(11, canvas.width / 68);
+  const r = Math.max(6.4, canvas.width / 108);
   landmarks.forEach((lm, i) => {
     const p = px(lm);
     drawLandmarkShape(p.x, p.y, r, colorFor(i), isRight, isOccluded(lm));

@@ -73,3 +73,17 @@ export function colorFor(id) {
   if (id <= 16) return FINGER.ring.color;
   return FINGER.pinky.color;
 }
+
+export function shadeColor(hex, amount = 0.28) {
+  const n = String(hex).replace("#", "");
+  const r = parseInt(n.slice(0, 2), 16);
+  const g = parseInt(n.slice(2, 4), 16);
+  const b = parseInt(n.slice(4, 6), 16);
+  const k = 1 - amount;
+  const to = (c) => Math.max(0, Math.min(255, Math.round(c * k))).toString(16).padStart(2, "0");
+  return `#${to(r)}${to(g)}${to(b)}`;
+}
+
+export function boneColor(id) {
+  return shadeColor(colorFor(id), 0.28);
+}
