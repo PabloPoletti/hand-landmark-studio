@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { CONNECTIONS, FINGER_CHAINS, colorFor, boneColor } from "./schema.js?v=35";
+import { CONNECTIONS, FINGER_CHAINS, colorFor, boneColor } from "./schema.js?v=36";
 
 const SKIN_SCALE = 1.42;
 const MCP_IDS = new Set([1, 5, 9, 13, 17]);
@@ -105,8 +105,8 @@ function overlayMaterial(color, opacity = 1) {
 }
 
 function markRadius(id, hidden) {
-  if (id === 0) return hidden ? 0.02 : 0.026;
-  if (MCP_IDS.has(id)) return hidden ? 0.016 : 0.02;
+  if (id === 0) return hidden ? 0.022 : 0.028;
+  if (MCP_IDS.has(id)) return hidden ? 0.02 : 0.024;
   if (TIP_IDS.has(id)) return hidden ? 0.014 : 0.017;
   return hidden ? 0.013 : 0.016;
 }
@@ -160,7 +160,7 @@ function addSkeleton(group, pts, landmarks = [], handedness = "Unknown") {
   });
 
   pts.forEach((p, i) => {
-    const hidden = Boolean(landmarks[i]?.occluded);
+    const hidden = Boolean(landmarks[i]?.occluded) && i !== 0 && !MCP_IDS.has(i);
     const r = markRadius(i, hidden);
     const color = colorFor(i);
     const halo = new THREE.Mesh(
@@ -211,11 +211,7 @@ function makeSkinMaterial(color, opacity, extra = {}) {
 }
 
 function skinMaterial() {
-  return makeSkinMaterial(0xc48a68, 0.36, { solidOpacity: 0.92 });
-}
-
-function creaseMaterial() {
-  return makeSkinMaterial(0x8d5b42, 0.55, { roughness: 0.72, clearcoat: 0.04, solidOpacity: 0.95 });
+  return makeSkinMaterial(0xc48a68, 0.58, { solidOpacity: 0.94 });
 }
 
 function nailMaterial() {
@@ -250,15 +246,6 @@ function addPalm(group, pts, material) {
   group.add(thenar);
 }
 
-function addJointCollar(group, joint, toward, radius, material) {
-  const dir = toward.clone().sub(joint);
-  if (dir.lengthSq() < 1e-8) return;
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(radius * 1.02, radius * 0.2, 12, 24), material);
-  ring.position.copy(joint);
-  ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir.normalize());
-  group.add(ring);
-}
-
 function addNail(group, dip, tip, radius, material) {
   const dir = tip.clone().sub(dip);
   const len = dir.length();
@@ -270,16 +257,15 @@ function addNail(group, dip, tip, radius, material) {
   group.add(nail);
 }
 
-function addFinger(group, chain, radii, material, crease, nail) {
+function addFinger(group, chain, radii, material, nail) {
   for (let i = 0; i < chain.length - 1; i++) {
     const r0 = radii[i];
     const r1 = radii[Math.min(i + 1, radii.length - 1)];
     const mesh = bone(chain[i], chain[i + 1], r0 * 0.92, r1 * 0.88, material);
     if (mesh) group.add(mesh);
-    const knuckle = new THREE.Mesh(new THREE.SphereGeometry(r0 * 1.12, 28, 22), material);
+    const knuckle = new THREE.Mesh(new THREE.SphereGeometry(r0 * 1.08, 28, 22), material);
     knuckle.position.copy(chain[i]);
     group.add(knuckle);
-    addJointCollar(group, chain[i], chain[i + 1], r0, crease);
   }
   const tip = new THREE.Mesh(
     new THREE.SphereGeometry(radii[radii.length - 1] * 0.95, 28, 22),
@@ -314,22 +300,8 @@ function buildManoHand(pts, meshData, apply, landmarks, handedness) {
   geo.setIndex(asTriangles(meshData.faces).flat());
   geo.computeVertexNormals();
 
-  const mesh = new THREE.Mesh(geo, makeSkinMaterial(0xc48a68, 0.36, { solidOpacity: 0.9 }));
+  const mesh = new THREE.Mesh(geo, makeSkinMaterial(0xc48a68, 0.55, { solidOpacity: 0.92 }));
   group.add(mesh);
-  const crease = creaseMaterial();
-  FINGER_CHAINS.forEach((finger) => {
-    const ids = finger.ids;
-    for (let i = 0; i < ids.length - 1; i++) {
-      addJointCollar(group, pts[ids[i]], pts[ids[i + 1]], finger.radii[i] * SKIN_SCALE, crease);
-    }
-    addNail(
-      group,
-      pts[ids[ids.length - 2]],
-      pts[ids[ids.length - 1]],
-      finger.radii[finger.radii.length - 1] * SKIN_SCALE,
-      nailMaterial(),
-    );
-  });
   addSkeleton(group, pts, landmarks, handedness);
   return group;
 }
@@ -337,13 +309,12 @@ function buildManoHand(pts, meshData, apply, landmarks, handedness) {
 function buildAnatomicalHand(pts, landmarks, handedness) {
   const group = new THREE.Group();
   const skin = skinMaterial();
-  const crease = creaseMaterial();
   const nail = nailMaterial();
   addPalm(group, pts, skin);
   FINGER_CHAINS.forEach((finger) => {
     const chain = finger.ids.map((id) => pts[id]);
     const radii = finger.radii.map((r) => r * SKIN_SCALE);
-    addFinger(group, chain, radii, skin, crease, nail);
+    addFinger(group, chain, radii, skin, nail);
   });
   addSkeleton(group, pts, landmarks, handedness);
   return group;

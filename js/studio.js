@@ -1,5 +1,5 @@
-import { CONNECTIONS, NAMES, colorFor, boneColor } from "./schema.js?v=35";
-import { predictWilor, wilorToHands } from "./wilor.js?v=35";
+import { CONNECTIONS, NAMES, colorFor, boneColor } from "./schema.js?v=36";
+import { predictWilor, wilorToHands } from "./wilor.js?v=36";
 
 const LOCAL_BASE = new URL("../vendor/mediapipe/", import.meta.url);
 const MODEL = new URL("hand_landmarker.task", LOCAL_BASE).href;
@@ -107,7 +107,7 @@ async function initModel() {
     "Modelo de manos",
   );
   try {
-    const three = await import("./hand3d.js?v=35");
+    const three = await import("./hand3d.js?v=36");
     studio = new three.HandStudio3D();
   } catch (err) {
     console.warn("Vista 3D no disponible", err);
@@ -354,7 +354,15 @@ function drawOverlay(image, landmarks, handedness) {
   const r = Math.max(4.6, canvas.width / 150);
   landmarks.forEach((lm, i) => {
     const p = px(lm);
-    drawLandmarkShape(p.x, p.y, r, colorFor(i), isRight, isOccluded(lm));
+    const knuckle = i === 0 || i === 1 || i === 5 || i === 9 || i === 13 || i === 17;
+    drawLandmarkShape(
+      p.x,
+      p.y,
+      knuckle ? r * 1.25 : r,
+      colorFor(i),
+      isRight,
+      knuckle ? false : isOccluded(lm),
+    );
   });
 }
 
@@ -373,6 +381,52 @@ function photoLandmarks(hand) {
     presence: lm.presence,
     occluded: hand.landmarks[i]?.occluded,
   }));
+}
+
+function pointDist(a, b) {
+  if (!a || !b) return 0;
+  return Math.hypot(a.x - b.x, a.y - b.y, (a.z ?? 0) - (b.z ?? 0));
+}
+
+function mixPoint(a, b, t) {
+  return {
+    ...b,
+    x: a.x + (b.x - a.x) * t,
+    y: a.y + (b.y - a.y) * t,
+    z: (a.z ?? 0) + ((b.z ?? 0) - (a.z ?? 0)) * t,
+    occluded: false,
+  };
+}
+
+function repairLandmarks(src) {
+  if (!src?.length) return src;
+  const pts = src.map((lm) => ({ ...lm }));
+  const wrist = pts[0];
+  const mcps = [5, 9, 13, 17];
+  const pips = [6, 10, 14, 18];
+  mcps.forEach((mcp, i) => {
+    const pip = pts[pips[i]];
+    if (!wrist || !pip || !pts[mcp]) return;
+    const palm = pointDist(wrist, pip);
+    if (palm > 1e-6 && pointDist(wrist, pts[mcp]) < palm * 0.28) {
+      pts[mcp] = { ...pts[mcp], ...mixPoint(wrist, pip, 0.4) };
+    }
+    pts[mcp].occluded = false;
+  });
+  if (wrist && pts[1] && pts[2] && pointDist(wrist, pts[1]) < pointDist(wrist, pts[2]) * 0.22) {
+    pts[1] = { ...pts[1], ...mixPoint(wrist, pts[2], 0.34) };
+  }
+  const span = pointDist(pts[5], pts[17]);
+  for (let i = 0; i < 3 && span > 1e-6; i++) {
+    if (pointDist(pts[mcps[i]], pts[mcps[i + 1]]) < span * 0.1) {
+      pts[mcps[i + 1]] = {
+        ...pts[mcps[i + 1]],
+        ...mixPoint(pts[5], pts[17], (i + 1) / 4),
+      };
+    }
+  }
+  if (pts[0]) pts[0].occluded = false;
+  return pts;
 }
 
 function retractTips(landmarks) {
@@ -409,18 +463,19 @@ function hybridOccluded(landmarks, hand) {
 function renderActive() {
   const hand = lastHands[activeIndex];
   if (!hand || !lastImage) return;
+  const mp = sources.mediapipe?.[activeIndex] || sources.mediapipe?.[0];
   const landmarks = retractTips(
-    hybridOccluded(addOcclusion(photoLandmarks(hand), hand.worldLandmarks), hand),
+    repairLandmarks(
+      hybridOccluded(addOcclusion(photoLandmarks(hand), mp?.worldLandmarks || hand.worldLandmarks), hand),
+    ),
   );
   drawOverlay(lastImage, landmarks, handednessOf(hand));
-  const ownWorld = hand.worldLandmarks?.length >= 21;
-  const world =
-    ownWorld
-      ? hand.worldLandmarks
-      : sources.mediapipe?.[activeIndex]?.worldLandmarks ||
-        sources.mediapipe?.[0]?.worldLandmarks ||
-        landmarks;
-  const mesh = ownWorld ? hand.mesh : null;
+  const world = repairLandmarks(
+    mp?.worldLandmarks ||
+      hand.worldLandmarks ||
+      landmarks,
+  );
+  const mesh = activeSource === "wilor" && hand.mesh ? hand.mesh : null;
   try {
     studio?.setHand(world, handednessOf(hand), mesh, landmarks);
   } catch (err) {
