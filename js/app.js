@@ -1,15 +1,24 @@
-import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/+esm";
 import { CONNECTIONS, NAMES, colorFor } from "./schema.js";
-import { HandStudio3D } from "./hand3d.js";
 import { predictWilor, wilorToHands } from "./wilor.js";
 
 const MODEL =
   "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
-const WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm";
+const MEDIAPIPE_SOURCES = [
+  {
+    module: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/vision_bundle.mjs",
+    wasm: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm",
+  },
+  {
+    module: "https://unpkg.com/@mediapipe/tasks-vision@0.10.22/vision_bundle.mjs",
+    wasm: "https://unpkg.com/@mediapipe/tasks-vision@0.10.22/wasm",
+  },
+  {
+    module: "https://esm.sh/@mediapipe/tasks-vision@0.10.22",
+    wasm: "https://esm.sh/@mediapipe/tasks-vision@0.10.22/wasm",
+  },
+];
 
 const statusEl = document.getElementById("engine-status");
-const dropzone = document.getElementById("dropzone");
-const fileInput = document.getElementById("file-input");
 const results = document.getElementById("results");
 const toolbar = document.getElementById("toolbar");
 const switcher = document.getElementById("hand-switcher");
@@ -26,13 +35,34 @@ let lastImage = null;
 let lastFile = null;
 let lastHands = [];
 let activeIndex = 0;
+let ready = false;
 
 function setStatus(text, ok = false) {
   statusEl.textContent = text;
   statusEl.style.borderColor = ok ? "#4ade80" : "";
 }
 
-async function createLandmarker(vision, delegate) {
+async function loadMediapipe() {
+  let lastError = null;
+  for (const source of MEDIAPIPE_SOURCES) {
+    try {
+      const mod = await import(source.module);
+      const HandLandmarker = mod.HandLandmarker;
+      const FilesetResolver = mod.FilesetResolver;
+      if (!HandLandmarker || !FilesetResolver) {
+        throw new Error("El bundle no exporta HandLandmarker");
+      }
+      const vision = await FilesetResolver.forVisionTasks(source.wasm);
+      return { HandLandmarker, vision };
+    } catch (err) {
+      lastError = err;
+      console.warn("MediaPipe fallback", source.module, err);
+    }
+  }
+  throw lastError || new Error("No se pudo cargar MediaPipe");
+}
+
+async function createLandmarker(HandLandmarker, vision, delegate) {
   return HandLandmarker.createFromOptions(vision, {
     baseOptions: { modelAssetPath: MODEL, delegate },
     runningMode: "IMAGE",
@@ -44,14 +74,26 @@ async function createLandmarker(vision, delegate) {
 }
 
 async function initModel() {
-  const vision = await FilesetResolver.forVisionTasks(WASM);
+  setStatus("Cargando MediaPipe…");
+  const { HandLandmarker, vision } = await loadMediapipe();
   try {
-    landmarker = await createLandmarker(vision, "GPU");
+    landmarker = await createLandmarker(HandLandmarker, vision, "GPU");
   } catch {
-    landmarker = await createLandmarker(vision, "CPU");
+    landmarker = await createLandmarker(HandLandmarker, vision, "CPU");
   }
-  studio = new HandStudio3D();
+  try {
+    const three = await import("./hand3d.js");
+    studio = new three.HandStudio3D();
+  } catch (err) {
+    console.warn("Vista 3D no disponible", err);
+  }
+  ready = true;
   setStatus("Modelo listo · pegá una foto", true);
+  const pending = window.__pendingHandFile;
+  if (pending) {
+    window.__pendingHandFile = null;
+    await processFile(pending);
+  }
 }
 
 function drawOverlay(image, landmarks) {
@@ -98,7 +140,7 @@ function renderActive() {
   const hand = lastHands[activeIndex];
   if (!hand || !lastImage) return;
   drawOverlay(lastImage, hand.landmarks);
-  studio.setHand(hand.worldLandmarks, handednessOf(hand));
+  studio?.setHand(hand.worldLandmarks, handednessOf(hand));
   const label = handednessOf(hand) === "Left" ? "izquierda" : "derecha";
   note.textContent = `Mano ${activeIndex + 1} · ${label} · 21 landmarks`;
   copyBtn.hidden = false;
@@ -154,19 +196,23 @@ function loadImage(src) {
 }
 
 async function processFile(file) {
-  if (!file || !file.type.startsWith("image/")) return;
-  if (!landmarker) {
-    setStatus("El modelo todavía está cargando…");
+  if (!file || !String(file.type || "").startsWith("image/")) return;
+  lastFile = file;
+  if (!ready || !landmarker) {
+    window.__pendingHandFile = file;
+    setStatus("Imagen lista · esperando modelo…");
     return;
   }
   setStatus("Detectando mano…");
-  lastFile = file;
   const url = URL.createObjectURL(file);
   try {
     const image = await loadImage(url);
     const detection = landmarker.detect(image);
     showHands(image, detection);
-    setStatus(`${lastHands.length} mano${lastHands.length === 1 ? "" : "s"} detectada${lastHands.length === 1 ? "" : "s"}`, true);
+    setStatus(
+      `${lastHands.length} mano${lastHands.length === 1 ? "" : "s"} detectada${lastHands.length === 1 ? "" : "s"}`,
+      true,
+    );
   } catch (err) {
     console.error(err);
     setStatus("No se pudo leer la imagen");
@@ -175,43 +221,13 @@ async function processFile(file) {
   }
 }
 
-function onPaste(event) {
-  const items = event.clipboardData?.items;
-  if (!items) return;
-  for (const item of items) {
-    if (item.type.startsWith("image/")) {
-      event.preventDefault();
-      processFile(item.getAsFile());
-      return;
-    }
-  }
-}
+window.addEventListener("hand-file", (event) => {
+  processFile(event.detail);
+});
 
-dropzone.addEventListener("click", () => fileInput.click());
-dropzone.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" || e.key === " ") fileInput.click();
-});
-fileInput.addEventListener("change", () => {
-  const file = fileInput.files?.[0];
-  if (file) processFile(file);
-});
-["dragenter", "dragover"].forEach((type) => {
-  dropzone.addEventListener(type, (e) => {
-    e.preventDefault();
-    dropzone.classList.add("dragover");
-  });
-});
-["dragleave", "drop"].forEach((type) => {
-  dropzone.addEventListener(type, (e) => {
-    e.preventDefault();
-    dropzone.classList.remove("dragover");
-  });
-});
-dropzone.addEventListener("drop", (e) => {
-  const file = e.dataTransfer?.files?.[0];
-  if (file) processFile(file);
-});
-window.addEventListener("paste", onPaste);
+if (window.__pendingHandFile) {
+  processFile(window.__pendingHandFile);
+}
 
 wilorBtn.addEventListener("click", async () => {
   if (!lastFile || !lastImage) return;
@@ -262,5 +278,5 @@ copyBtn.addEventListener("click", async () => {
 
 initModel().catch((err) => {
   console.error(err);
-  setStatus("No se pudo cargar MediaPipe");
+  setStatus(err?.message || "No se pudo cargar MediaPipe");
 });

@@ -10,6 +10,14 @@
     />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✋</text></svg>" />
     <link rel="stylesheet" href="styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.167.1/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.167.1/examples/jsm/"
+        }
+      }
+    </script>
   </head>
   <body>
     <header class="top">
@@ -32,14 +40,14 @@
       </div>
     </header>
 
-    <section id="dropzone" class="dropzone" tabindex="0">
-      <input id="file-input" type="file" accept="image/*" hidden />
+    <label id="dropzone" class="dropzone" tabindex="0">
+      <input id="file-input" class="file-input" type="file" accept="image/*" />
       <div class="dropzone-inner">
         <div class="plus">+</div>
         <p><strong>Ctrl + V</strong> para pegar una captura o foto</p>
         <p class="hint">También podés soltar un archivo o hacer clic para elegir uno</p>
       </div>
-    </section>
+    </label>
 
     <section id="toolbar" class="toolbar" hidden>
       <div id="hand-switcher" class="switcher"></div>
@@ -81,6 +89,49 @@
       (gratis, más lento, mesh 3D).
     </footer>
 
-    <script type="module" src="js/app.js"></script>
+    <script>
+      (function () {
+        const zone = document.getElementById("dropzone");
+        const input = document.getElementById("file-input");
+        const status = document.getElementById("engine-status");
+        function queue(file) {
+          if (!file || !String(file.type || "").startsWith("image/")) return;
+          window.__pendingHandFile = file;
+          window.dispatchEvent(new CustomEvent("hand-file", { detail: file }));
+          if (status && /cargando/i.test(status.textContent)) {
+            status.textContent = "Imagen lista · esperando modelo…";
+          }
+        }
+        input.addEventListener("change", function () {
+          queue(input.files && input.files[0]);
+        });
+        window.addEventListener("paste", function (event) {
+          const items = event.clipboardData && event.clipboardData.items;
+          if (!items) return;
+          for (let i = 0; i < items.length; i++) {
+            if (items[i].type.indexOf("image/") === 0) {
+              event.preventDefault();
+              queue(items[i].getAsFile());
+              return;
+            }
+          }
+        });
+        ["dragenter", "dragover"].forEach(function (type) {
+          zone.addEventListener(type, function (event) {
+            event.preventDefault();
+            zone.classList.add("dragover");
+          });
+        });
+        zone.addEventListener("dragleave", function () {
+          zone.classList.remove("dragover");
+        });
+        zone.addEventListener("drop", function (event) {
+          event.preventDefault();
+          zone.classList.remove("dragover");
+          queue(event.dataTransfer && event.dataTransfer.files[0]);
+        });
+      })();
+    </script>
+    <script type="module" src="js/app.js?v=2"></script>
   </body>
 </html>
