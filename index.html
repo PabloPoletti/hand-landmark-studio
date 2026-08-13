@@ -9,7 +9,7 @@
       content="Pegá una foto de una mano y simulá los 21 landmarks MediaPipe en 2D y 3D."
     />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✋</text></svg>" />
-    <link rel="stylesheet" href="styles.css?v=24" />
+    <link rel="stylesheet" href="styles.css?v=25" />
     <script type="importmap">
       {
         "imports": {
@@ -22,17 +22,17 @@
   <body>
     <header class="top">
       <div>
-        <p class="eyebrow">Blueprint · MediaPipe 21 puntos</p>
+        <p class="eyebrow">Blueprint · 21 landmarks · WiLoR / MANO</p>
         <h1>Hand Landmark Studio</h1>
         <p class="lede">
-          Pegá una foto con <kbd>Ctrl</kbd>+<kbd>V</kbd>. El modelo estima la
-          pose y la muestra sobre la imagen y en tres vistas 3D.
+          Pegá una foto con <kbd>Ctrl</kbd>+<kbd>V</kbd>. MediaPipe da un
+          preview y WiLoR (CVPR 2025) reconstruye la mano 3D real (MANO).
         </p>
       </div>
       <div class="meta">
         <span id="engine-status" class="pill">Iniciando motor local…</span>
         <button id="wilor-btn" class="ghost" type="button" hidden>
-          Refinar con WiLoR
+          Reintentar WiLoR
         </button>
         <button id="copy-json" class="ghost" type="button" hidden>
           Copiar JSON 21 pts
@@ -97,12 +97,11 @@
     </p>
 
     <footer>
-      Instantáneo:
-      <a href="https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker" target="_blank" rel="noreferrer">MediaPipe</a>
-      en el navegador.
-      Opcional:
-      <a href="https://huggingface.co/spaces" target="_blank" rel="noreferrer">WiLoR-mini en Hugging Face</a>
-      (gratis, más lento, mesh 3D).
+      Preview:
+      <a href="https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker" target="_blank" rel="noreferrer">MediaPipe</a>.
+      Mano 3D:
+      <a href="https://github.com/rolpotamias/WiLoR" target="_blank" rel="noreferrer">WiLoR</a>
+      (CVPR 2025, mesh MANO). La primera vez el Space puede tardar 1–2 min.
     </footer>
 
     <script>
@@ -148,6 +147,6 @@
         });
       })();
     </script>
-    <script type="module" src="js/studio.js?v=24"></script>
+    <script type="module" src="js/studio.js?v=25"></script>
   </body>
 </html>

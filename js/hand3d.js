@@ -191,6 +191,42 @@ function addFinger(group, chain, radii, material) {
   group.add(tip);
 }
 
+function buildManoHand(pts, meshData, apply, landmarks, handedness) {
+  const group = new THREE.Group();
+  const verts = meshData.vertices.map((v) => apply(v));
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(verts.length * 3);
+  verts.forEach((v, i) => {
+    pos[i * 3] = v.x;
+    pos[i * 3 + 1] = v.y;
+    pos[i * 3 + 2] = v.z;
+  });
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  geo.setIndex(meshData.faces.flat());
+  geo.computeVertexNormals();
+
+  group.add(
+    new THREE.Mesh(
+      geo,
+      new THREE.MeshPhysicalMaterial({
+        color: 0xe2b496,
+        roughness: 0.42,
+        metalness: 0,
+        clearcoat: 0.18,
+        clearcoatRoughness: 0.55,
+        sheen: 0.4,
+        sheenColor: new THREE.Color(0xf4d2bc),
+        transparent: true,
+        opacity: 0.86,
+        side: THREE.FrontSide,
+        depthWrite: true,
+      }),
+    ),
+  );
+  addSkeleton(group, pts, landmarks, handedness);
+  return group;
+}
+
 function buildAnatomicalHand(pts, landmarks, handedness) {
   const group = new THREE.Group();
   const skin = skinMaterial();
@@ -300,12 +336,15 @@ export class HandStudio3D {
 
   setHand(worldLandmarks, handedness, mesh, landmarks = []) {
     const aligned = alignmentFromLandmarks(worldLandmarks, handedness);
+    const hasMesh = mesh?.vertices?.length && mesh?.faces?.length;
     Object.values(this.views).forEach((v) => {
       if (v.hand) {
         v.scene.remove(v.hand);
         disposeHand(v.hand);
       }
-      v.hand = buildAnatomicalHand(aligned.pts, landmarks, handedness);
+      v.hand = hasMesh
+        ? buildManoHand(aligned.pts, mesh, aligned.apply, landmarks, handedness)
+        : buildAnatomicalHand(aligned.pts, landmarks, handedness);
       v.scene.add(v.hand);
     });
     this.resize();

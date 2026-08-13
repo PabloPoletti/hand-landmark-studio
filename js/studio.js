@@ -36,6 +36,7 @@ let activeIndex = 0;
 let ready = false;
 let sources = { mediapipe: null, wilor: null };
 let activeSource = "mediapipe";
+let wilorJob = 0;
 
 function setStatus(text, ok = false) {
   statusEl.textContent = text;
@@ -169,34 +170,6 @@ function isOccluded(lm) {
   return false;
 }
 
-function distLm(a, b, use3d) {
-  const dx = a.x - b.x;
-  const dy = a.y - b.y;
-  const dz = use3d ? (a.z ?? 0) - (b.z ?? 0) : 0;
-  return Math.hypot(dx, dy, dz);
-}
-
-function constrainThumb(landmarks, use3d = false) {
-  if (!landmarks?.[1] || !landmarks[4] || !landmarks[8] || !landmarks[12]) return landmarks;
-  const thumb = distLm(landmarks[1], landmarks[4], use3d);
-  const index = distLm(landmarks[5], landmarks[8], use3d);
-  const middle = distLm(landmarks[9], landmarks[12], use3d);
-  const palm = distLm(landmarks[5], landmarks[17], use3d);
-  const limit = Math.max(index * 0.82, middle * 0.72, palm * 0.7);
-  if (!thumb || !limit || thumb <= limit) return landmarks;
-  const origin = landmarks[1];
-  const scale = limit / thumb;
-  return landmarks.map((lm, i) => {
-    if (i < 2 || i > 4) return lm;
-    return {
-      ...lm,
-      x: origin.x + (lm.x - origin.x) * scale,
-      y: origin.y + (lm.y - origin.y) * scale,
-      z: (origin.z ?? 0) + ((lm.z ?? 0) - (origin.z ?? 0)) * scale,
-    };
-  });
-}
-
 function addOcclusion(landmarks, world) {
   const src = world || landmarks;
   const palm = [0, 5, 9, 13, 17];
@@ -311,12 +284,10 @@ function handednessOf(hand) {
 function renderActive() {
   const hand = lastHands[activeIndex];
   if (!hand || !lastImage) return;
-  const landmarks = constrainThumb(addOcclusion(hand.landmarks, hand.worldLandmarks));
-  const world = constrainThumb(hand.worldLandmarks, true);
+  const landmarks = addOcclusion(hand.landmarks, hand.worldLandmarks);
   hand.landmarks = landmarks;
-  hand.worldLandmarks = world;
   drawOverlay(lastImage, landmarks, handednessOf(hand));
-  studio?.setHand(world, handednessOf(hand), hand.mesh, landmarks);
+  studio?.setHand(hand.worldLandmarks, handednessOf(hand), hand.mesh, landmarks);
   const label = handednessOf(hand) === "Left" ? "izquierda" : "derecha";
   const hidden = landmarks.filter(isOccluded).length;
   note.textContent = `Mano ${activeIndex + 1} · ${label} · 21 landmarks${
@@ -340,8 +311,8 @@ function renderSourceChips() {
   if (!existing) return;
   existing.innerHTML = "";
   [
-    ["mediapipe", "Opción A · MediaPipe"],
-    ["wilor", "Opción B · WiLoR"],
+    ["mediapipe", "MediaPipe · preview"],
+    ["wilor", "WiLoR · mano 3D"],
   ].forEach(([key, label]) => {
     if (!sources[key]?.length) return;
     const btn = document.createElement("button");
@@ -377,25 +348,10 @@ function renderHandChips() {
   });
 }
 
-function pinOverlayToMediaPipe(hands) {
-  const mp = sources.mediapipe?.[0];
-  if (!mp?.landmarks?.length || mp.landmarks.length !== 21) return hands;
-  return hands.map((hand) => ({
-    ...hand,
-    landmarks: mp.landmarks.map((lm, i) => ({
-      x: lm.x,
-      y: lm.y,
-      z: lm.z ?? 0,
-      occluded: Boolean(hand.landmarks[i]?.occluded),
-    })),
-  }));
-}
-
 function showHands(image, detection, source = "mediapipe") {
   lastImage = image;
   const { width, height } = imageSize(image);
-  let hands = detectionToHands(detection);
-  if (source === "wilor") hands = pinOverlayToMediaPipe(hands);
+  const hands = detectionToHands(detection);
   sources[source] = hands;
   activeSource = source;
   lastHands = hands;
@@ -446,6 +402,7 @@ async function loadImage(file) {
 async function processFile(file) {
   if (!file || !String(file.type || "").startsWith("image/")) return;
   lastFile = file;
+  wilorJob += 1;
   if (!ready || !landmarker) {
     window.__pendingHandFile = file;
     setStatus("Imagen lista · esperando modelo…");
@@ -460,10 +417,11 @@ async function processFile(file) {
     const { width, height } = imageSize(image);
     setStatus(
       lastHands.length
-        ? `${lastHands.length} mano${lastHands.length === 1 ? "" : "s"} · ${width}×${height}`
+        ? `${lastHands.length} mano${lastHands.length === 1 ? "" : "s"} · refinando con WiLoR…`
         : `0 manos · ${width}×${height}`,
       lastHands.length > 0,
     );
+    refineWithWilor();
   } catch (err) {
     console.error(err);
     setStatus("No se pudo leer la imagen");
@@ -478,16 +436,18 @@ if (window.__pendingHandFile) {
   processFile(window.__pendingHandFile);
 }
 
-wilorBtn.addEventListener("click", async () => {
+async function refineWithWilor() {
   if (!lastFile || !lastImage) return;
+  const job = ++wilorJob;
   wilorBtn.disabled = true;
   try {
     const mpHand = sources.mediapipe?.[0];
     const hint = mpHand ? handednessOf(mpHand) === "Right" : null;
     const result = await predictWilor(lastFile, setStatus, hint);
+    if (job !== wilorJob) return;
     const hands = wilorToHands(result);
     if (!hands.length) {
-      setStatus("WiLoR no encontró manos");
+      setStatus("WiLoR no encontró manos · se deja MediaPipe");
       return;
     }
     showHands(lastImage, {
@@ -496,13 +456,24 @@ wilorBtn.addEventListener("click", async () => {
       handedness: hands.map((h) => h.handedness),
       mesh: hands.map((h) => h.mesh),
     }, "wilor");
-    setStatus(`WiLoR · ${hands.length} mano${hands.length === 1 ? "" : "s"}`, true);
+    const hasMesh = hands.some((h) => h.mesh?.vertices?.length);
+    setStatus(
+      hasMesh
+        ? `WiLoR · mano 3D MANO · ${hands.length} mano${hands.length === 1 ? "" : "s"}`
+        : `WiLoR · ${hands.length} mano${hands.length === 1 ? "" : "s"}`,
+      true,
+    );
   } catch (err) {
+    if (job !== wilorJob) return;
     console.error(err);
-    setStatus(err.message || "WiLoR no está disponible");
+    setStatus(err.message || "WiLoR no está disponible · se deja MediaPipe");
   } finally {
-    wilorBtn.disabled = false;
+    if (job === wilorJob) wilorBtn.disabled = false;
   }
+}
+
+wilorBtn.addEventListener("click", () => {
+  refineWithWilor();
 });
 
 copyBtn.addEventListener("click", async () => {
