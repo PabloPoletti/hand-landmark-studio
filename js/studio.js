@@ -1,5 +1,5 @@
-import { CONNECTIONS, NAMES, colorFor, boneColor } from "./schema.js?v=34";
-import { predictWilor, wilorToHands } from "./wilor.js?v=34";
+import { CONNECTIONS, NAMES, colorFor, boneColor } from "./schema.js?v=35";
+import { predictWilor, wilorToHands } from "./wilor.js?v=35";
 
 const LOCAL_BASE = new URL("../vendor/mediapipe/", import.meta.url);
 const MODEL = new URL("hand_landmarker.task", LOCAL_BASE).href;
@@ -107,7 +107,7 @@ async function initModel() {
     "Modelo de manos",
   );
   try {
-    const three = await import("./hand3d.js?v=34");
+    const three = await import("./hand3d.js?v=35");
     studio = new three.HandStudio3D();
   } catch (err) {
     console.warn("Vista 3D no disponible", err);
@@ -628,11 +628,19 @@ wilorBtn.addEventListener("click", () => {
   refineWithWilor();
 });
 
+const DISPLAY_CYCLE = [
+  { mode: "xray", label: "Transparente", next: "Ver esqueleto" },
+  { mode: "skeleton", label: "Esqueleto", next: "Ver mano" },
+  { mode: "solid", label: "Mano", next: "Ver transparente" },
+];
+
 skeletonBtn?.addEventListener("click", () => {
-  const on = !studio?.skeletonOnly;
-  studio?.setSkeletonMode(on);
-  skeletonBtn.classList.toggle("active", on);
-  skeletonBtn.textContent = on ? "Ver mano" : "Ver esqueleto";
+  const current = studio?.displayMode || "xray";
+  const index = DISPLAY_CYCLE.findIndex((item) => item.mode === current);
+  const next = DISPLAY_CYCLE[(index + 1) % DISPLAY_CYCLE.length];
+  studio?.setDisplayMode(next.mode);
+  skeletonBtn.classList.toggle("active", next.mode !== "solid");
+  skeletonBtn.textContent = next.next;
 });
 
 copyBtn.addEventListener("click", async () => {

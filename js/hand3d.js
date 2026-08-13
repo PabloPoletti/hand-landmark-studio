@@ -1,9 +1,9 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { CONNECTIONS, FINGER_CHAINS, colorFor, boneColor } from "./schema.js?v=34";
+import { CONNECTIONS, FINGER_CHAINS, colorFor, boneColor } from "./schema.js?v=35";
 
-const SKIN_SCALE = 1.72;
+const SKIN_SCALE = 1.42;
 const MCP_IDS = new Set([1, 5, 9, 13, 17]);
 const TIP_IDS = new Set([4, 8, 12, 16, 20]);
 
@@ -118,15 +118,28 @@ function tagOverlay(obj) {
   });
 }
 
-function applyDisplayMode(hand, skeletonOnly) {
+function applyDisplayMode(hand, mode) {
   if (!hand) return;
+  const xray = mode === "xray";
+  const hideSkin = mode === "skeleton";
   hand.traverse((obj) => {
     if (!obj.isMesh) return;
     if (obj.userData.overlay) {
       obj.visible = true;
       return;
     }
-    obj.visible = !skeletonOnly;
+    if (hideSkin) {
+      obj.visible = false;
+      return;
+    }
+    obj.visible = true;
+    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+    mats.forEach((mat) => {
+      if (!mat?.userData?.skin) return;
+      mat.transparent = true;
+      mat.opacity = xray ? 0.36 : mat.userData.solidOpacity ?? 0.92;
+      mat.depthWrite = !xray;
+    });
   });
 }
 
@@ -174,22 +187,39 @@ function addSkeleton(group, pts, landmarks = [], handedness = "Unknown") {
   group.add(overlay);
 }
 
-function skinMaterial() {
-  return new THREE.MeshPhysicalMaterial({
-    color: 0xc48a68,
-    roughness: 0.52,
+function makeSkinMaterial(color, opacity, extra = {}) {
+  const mat = new THREE.MeshPhysicalMaterial({
+    color,
+    roughness: extra.roughness ?? 0.48,
     metalness: 0.02,
-    clearcoat: 0.12,
-    clearcoatRoughness: 0.55,
-    sheen: 0.18,
-    sheenRoughness: 0.55,
+    clearcoat: extra.clearcoat ?? 0.16,
+    clearcoatRoughness: 0.5,
+    sheen: 0.22,
+    sheenRoughness: 0.5,
     sheenColor: new THREE.Color(0xc99674),
-    side: THREE.FrontSide,
-    depthWrite: true,
+    transparent: true,
+    opacity,
+    side: THREE.DoubleSide,
+    depthWrite: opacity > 0.7,
     polygonOffset: true,
     polygonOffsetFactor: 1,
     polygonOffsetUnits: 1,
   });
+  mat.userData.skin = true;
+  mat.userData.solidOpacity = extra.solidOpacity ?? opacity;
+  return mat;
+}
+
+function skinMaterial() {
+  return makeSkinMaterial(0xc48a68, 0.36, { solidOpacity: 0.92 });
+}
+
+function creaseMaterial() {
+  return makeSkinMaterial(0x8d5b42, 0.55, { roughness: 0.72, clearcoat: 0.04, solidOpacity: 0.95 });
+}
+
+function nailMaterial() {
+  return makeSkinMaterial(0xf4d6c8, 0.7, { roughness: 0.22, clearcoat: 0.55, solidOpacity: 0.96 });
 }
 
 function addPalm(group, pts, material) {
@@ -212,30 +242,52 @@ function addPalm(group, pts, material) {
   const palm = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 28), material);
   palm.position.copy(center);
   palm.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
-  palm.scale.set(across.length() * 0.58, along.length() * 0.46, Math.max(0.075, across.length() * 0.2));
+  palm.scale.set(across.length() * 0.52, along.length() * 0.42, Math.max(0.055, across.length() * 0.14));
   group.add(palm);
 
-  const thenar = new THREE.Mesh(new THREE.SphereGeometry(across.length() * 0.26, 28, 22), material);
+  const thenar = new THREE.Mesh(new THREE.SphereGeometry(across.length() * 0.2, 28, 22), material);
   thenar.position.copy(pts[0].clone().add(pts[1]).add(pts[5]).multiplyScalar(1 / 3));
   group.add(thenar);
 }
 
-function addFinger(group, chain, radii, material) {
+function addJointCollar(group, joint, toward, radius, material) {
+  const dir = toward.clone().sub(joint);
+  if (dir.lengthSq() < 1e-8) return;
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(radius * 1.02, radius * 0.2, 12, 24), material);
+  ring.position.copy(joint);
+  ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir.normalize());
+  group.add(ring);
+}
+
+function addNail(group, dip, tip, radius, material) {
+  const dir = tip.clone().sub(dip);
+  const len = dir.length();
+  if (len < 1e-5) return;
+  const axis = dir.normalize();
+  const nail = new THREE.Mesh(new THREE.BoxGeometry(radius * 1.2, radius * 0.2, radius * 1.25), material);
+  nail.position.copy(tip).addScaledVector(axis, radius * 0.12);
+  nail.quaternion.setFromUnitVectors(Y_UP, axis);
+  group.add(nail);
+}
+
+function addFinger(group, chain, radii, material, crease, nail) {
   for (let i = 0; i < chain.length - 1; i++) {
     const r0 = radii[i];
     const r1 = radii[Math.min(i + 1, radii.length - 1)];
-    const mesh = bone(chain[i], chain[i + 1], r0, r1, material);
+    const mesh = bone(chain[i], chain[i + 1], r0 * 0.92, r1 * 0.88, material);
     if (mesh) group.add(mesh);
-    const knuckle = new THREE.Mesh(new THREE.SphereGeometry(r0 * 1.05, 28, 22), material);
+    const knuckle = new THREE.Mesh(new THREE.SphereGeometry(r0 * 1.12, 28, 22), material);
     knuckle.position.copy(chain[i]);
     group.add(knuckle);
+    addJointCollar(group, chain[i], chain[i + 1], r0, crease);
   }
   const tip = new THREE.Mesh(
-    new THREE.SphereGeometry(radii[radii.length - 1] * 1.08, 28, 22),
+    new THREE.SphereGeometry(radii[radii.length - 1] * 0.95, 28, 22),
     material,
   );
   tip.position.copy(chain[chain.length - 1]);
   group.add(tip);
+  addNail(group, chain[chain.length - 2], chain[chain.length - 1], radii[radii.length - 1], nail);
 }
 
 function asTriangles(faces) {
@@ -248,34 +300,9 @@ function asTriangles(faces) {
   return tris;
 }
 
-function smoothVertices(verts, faces, iterations = 2) {
-  const tris = asTriangles(faces);
-  const adj = verts.map(() => new Set());
-  tris.forEach(([a, b, c]) => {
-    adj[a]?.add(b);
-    adj[a]?.add(c);
-    adj[b]?.add(a);
-    adj[b]?.add(c);
-    adj[c]?.add(a);
-    adj[c]?.add(b);
-  });
-  let cur = verts.map((v) => v.clone());
-  for (let i = 0; i < iterations; i++) {
-    cur = cur.map((v, idx) => {
-      const nbrs = adj[idx];
-      if (!nbrs?.size) return v.clone();
-      const avg = new THREE.Vector3();
-      nbrs.forEach((j) => avg.add(cur[j]));
-      avg.multiplyScalar(1 / nbrs.size);
-      return v.clone().lerp(avg, 0.32);
-    });
-  }
-  return cur;
-}
-
 function buildManoHand(pts, meshData, apply, landmarks, handedness) {
   const group = new THREE.Group();
-  const verts = smoothVertices(meshData.vertices.map((v) => apply(v)), meshData.faces);
+  const verts = meshData.vertices.map((v) => apply(v));
   const geo = new THREE.BufferGeometry();
   const pos = new Float32Array(verts.length * 3);
   verts.forEach((v, i) => {
@@ -287,27 +314,22 @@ function buildManoHand(pts, meshData, apply, landmarks, handedness) {
   geo.setIndex(asTriangles(meshData.faces).flat());
   geo.computeVertexNormals();
 
-  const mesh = new THREE.Mesh(
-    geo,
-    new THREE.MeshPhysicalMaterial({
-      color: 0xc48a68,
-      roughness: 0.5,
-      metalness: 0.02,
-      clearcoat: 0.12,
-      clearcoatRoughness: 0.55,
-      sheen: 0.18,
-      sheenRoughness: 0.55,
-      sheenColor: new THREE.Color(0xc99674),
-      transparent: true,
-      opacity: 0.98,
-      side: THREE.FrontSide,
-      depthWrite: true,
-      polygonOffset: true,
-      polygonOffsetFactor: 1,
-      polygonOffsetUnits: 1,
-    }),
-  );
+  const mesh = new THREE.Mesh(geo, makeSkinMaterial(0xc48a68, 0.36, { solidOpacity: 0.9 }));
   group.add(mesh);
+  const crease = creaseMaterial();
+  FINGER_CHAINS.forEach((finger) => {
+    const ids = finger.ids;
+    for (let i = 0; i < ids.length - 1; i++) {
+      addJointCollar(group, pts[ids[i]], pts[ids[i + 1]], finger.radii[i] * SKIN_SCALE, crease);
+    }
+    addNail(
+      group,
+      pts[ids[ids.length - 2]],
+      pts[ids[ids.length - 1]],
+      finger.radii[finger.radii.length - 1] * SKIN_SCALE,
+      nailMaterial(),
+    );
+  });
   addSkeleton(group, pts, landmarks, handedness);
   return group;
 }
@@ -315,13 +337,13 @@ function buildManoHand(pts, meshData, apply, landmarks, handedness) {
 function buildAnatomicalHand(pts, landmarks, handedness) {
   const group = new THREE.Group();
   const skin = skinMaterial();
+  const crease = creaseMaterial();
+  const nail = nailMaterial();
   addPalm(group, pts, skin);
   FINGER_CHAINS.forEach((finger) => {
     const chain = finger.ids.map((id) => pts[id]);
-    if (finger.key === "thumb") chain.unshift(pts[0]);
     const radii = finger.radii.map((r) => r * SKIN_SCALE);
-    if (finger.key === "thumb") radii.unshift(radii[0] * 1.15);
-    addFinger(group, chain, radii, skin);
+    addFinger(group, chain, radii, skin, crease, nail);
   });
   addSkeleton(group, pts, landmarks, handedness);
   return group;
@@ -372,16 +394,16 @@ function makeView(container, cameraPos) {
   controls.minDistance = 1.4;
   controls.maxDistance = 5;
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.42));
-  scene.add(new THREE.HemisphereLight(0xe8ddd2, 0x5a534c, 0.78));
-  const key = new THREE.DirectionalLight(0xfff1e4, 1.05);
-  key.position.set(1.6, 2.4, 2.0);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.28));
+  scene.add(new THREE.HemisphereLight(0xf3e6d8, 0x3d3a38, 0.7));
+  const key = new THREE.DirectionalLight(0xfff4ea, 1.25);
+  key.position.set(-1.4, 2.6, 1.8);
   scene.add(key);
-  const fill = new THREE.DirectionalLight(0xc5d0e0, 0.28);
-  fill.position.set(-2.1, 0.5, 0.9);
+  const fill = new THREE.DirectionalLight(0x9aa8bc, 0.32);
+  fill.position.set(2.2, 0.2, 0.6);
   scene.add(fill);
-  const rim = new THREE.DirectionalLight(0xe8d8c4, 0.32);
-  rim.position.set(-0.3, 1.1, -2.1);
+  const rim = new THREE.DirectionalLight(0xffe2c4, 0.55);
+  rim.position.set(0.2, 1.4, -2.2);
   scene.add(rim);
 
   return { scene, camera, renderer, controls, hand: null };
@@ -397,7 +419,7 @@ export class HandStudio3D {
       ),
       side: makeView(document.getElementById("view-side"), new THREE.Vector3(2.9, 0.08, 0.18)),
     };
-    this.skeletonOnly = false;
+    this.displayMode = "xray";
     this.resize();
     window.addEventListener("resize", () => this.resize());
     const tick = () => {
@@ -445,15 +467,15 @@ export class HandStudio3D {
         disposeHand(v.hand);
       }
       v.hand = next;
-      applyDisplayMode(v.hand, this.skeletonOnly);
+      applyDisplayMode(v.hand, this.displayMode);
       v.scene.add(v.hand);
     });
     this.resize();
   }
 
-  setSkeletonMode(on) {
-    this.skeletonOnly = Boolean(on);
-    Object.values(this.views).forEach((v) => applyDisplayMode(v.hand, this.skeletonOnly));
+  setDisplayMode(mode) {
+    this.displayMode = mode;
+    Object.values(this.views).forEach((v) => applyDisplayMode(v.hand, this.displayMode));
   }
 
   clear() {
