@@ -1,5 +1,5 @@
-torch>=2.0,<=2.5
-torchvision>=0.15.1
+torch==2.8.0
+torchvision
 smplx==0.1.28
 timm
 einops
@@ -11,5 +11,4 @@ roma
 numpy
 gradio==4.44.1
 spaces
-git+https://github.com/warmshao/WiLoR-mini
 git+https://github.com/mattloper/chumpy

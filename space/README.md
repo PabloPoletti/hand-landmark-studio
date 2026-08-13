@@ -5,7 +5,7 @@ colorFrom: indigo
 colorTo: blue
 sdk: gradio
 sdk_version: 4.44.1
-python_version: 3.10
+python_version: "3.10"
 app_file: app.py
 suggested_hardware: zero-a10g
 pinned: false

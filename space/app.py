@@ -1,3 +1,19 @@
+import importlib.util
+import subprocess
+import sys
+
+if importlib.util.find_spec("wilor_mini") is None:
+    subprocess.check_call(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--no-deps",
+            "git+https://github.com/warmshao/WiLoR-mini",
+        ]
+    )
+
 import numpy as np
 import torch
 import gradio as gr
