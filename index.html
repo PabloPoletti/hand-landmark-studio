@@ -63,7 +63,6 @@
           <canvas id="overlay"></canvas>
         </div>
         <h2>landmarks sobre tu foto</h2>
-        <p class="legend">Sólido = visible · punteado / * = ocluido</p>
       </article>
       <article class="panel">
         <div class="frame view" id="view-front"></div>
@@ -77,6 +76,23 @@
         <div class="frame view" id="view-side"></div>
         <h2>lateral</h2>
       </article>
+    </section>
+
+    <section class="notation" aria-label="Notación del proyecto">
+      <div class="swatches" id="color-legend">
+        <span><i style="background:#9aa0a6"></i>Wrist 0</span>
+        <span><i style="background:#f0abfc"></i>Thumb 1–4</span>
+        <span><i style="background:#f5d76e"></i>Index 5–8</span>
+        <span><i style="background:#4ade80"></i>Middle 9–12</span>
+        <span><i style="background:#38bdf8"></i>Ring 13–16</span>
+        <span><i style="background:#a78bfa"></i>Pinky 17–20</span>
+      </div>
+      <div class="swatches">
+        <span class="shape-key"><span class="dot"></span>Circle · Left hand</span>
+        <span class="shape-key"><span class="penta"></span>Pentagon · Right hand</span>
+        <span>Anillo + barra · ocluido (se estima igual)</span>
+        <span>Línea punteada · llega a un ocluido</span>
+      </div>
     </section>
 
     <p id="empty-msg" class="empty" hidden>
@@ -136,6 +152,6 @@
         });
       })();
     </script>
-    <script type="module" src="js/studio.js?v=13"></script>
+    <script type="module" src="js/studio.js?v=14"></script>
   </body>
 </html>

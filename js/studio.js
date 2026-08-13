@@ -1,4 +1,5 @@
 import { CONNECTIONS, NAMES, colorFor } from "./schema.js";
+import { drawLandmark2D, isLeftHand } from "./notation.js";
 import { predictWilor, wilorToHands } from "./wilor.js";
 
 const LOCAL_BASE = new URL("../vendor/mediapipe/", import.meta.url);
@@ -182,9 +183,10 @@ function addOcclusion(landmarks, world) {
   }));
 }
 
-function drawOverlay(image, landmarks) {
+function drawOverlay(image, landmarks, handedness) {
   const fit = drawPhoto(image);
   if (!fit || !landmarks?.length) return;
+  const left = isLeftHand(handedness);
 
   const px = (lm) => ({ x: fit.x + lm.x * fit.w, y: fit.y + lm.y * fit.h });
   ctx.lineCap = "round";
@@ -193,8 +195,8 @@ function drawOverlay(image, landmarks) {
   CONNECTIONS.forEach(([a, b]) => {
     const pa = px(landmarks[a]);
     const pb = px(landmarks[b]);
-    const hidden = isOccluded(landmarks[a]) || isOccluded(landmarks[b]);
-    ctx.globalAlpha = hidden ? 0.4 : 1;
+    const hidden = isOccluded(landmarks[b]);
+    ctx.globalAlpha = hidden ? 0.7 : 1;
     ctx.setLineDash(hidden ? [7, 5] : []);
     ctx.lineWidth = stroke;
     ctx.strokeStyle = colorFor(b === 0 ? a : b);
@@ -206,48 +208,23 @@ function drawOverlay(image, landmarks) {
   ctx.setLineDash([]);
   ctx.globalAlpha = 1;
 
-  const r = Math.max(3.5, canvas.width / 160);
+  const r = Math.max(4, canvas.width / 150);
   const font = Math.max(11, canvas.width / 64);
   landmarks.forEach((lm, i) => {
     const p = px(lm);
     const hidden = isOccluded(lm);
-    ctx.globalAlpha = hidden ? 0.55 : 1;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, r + 1.4, 0, Math.PI * 2);
-    ctx.fillStyle = "#fff";
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-    if (hidden) {
-      ctx.strokeStyle = colorFor(i);
-      ctx.lineWidth = 2;
-      ctx.setLineDash([2, 2]);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.beginPath();
-      ctx.moveTo(p.x - r * 0.55, p.y - r * 0.55);
-      ctx.lineTo(p.x + r * 0.55, p.y + r * 0.55);
-      ctx.moveTo(p.x + r * 0.55, p.y - r * 0.55);
-      ctx.lineTo(p.x - r * 0.55, p.y + r * 0.55);
-      ctx.stroke();
-    } else {
-      ctx.fillStyle = colorFor(i);
-      ctx.fill();
-    }
-
+    drawLandmark2D(ctx, p.x, p.y, r, i, left, hidden);
     ctx.font = `700 ${font}px Segoe UI, sans-serif`;
     ctx.textAlign = "left";
     ctx.textBaseline = "bottom";
-    const label = hidden ? `${i}*` : String(i);
     const tx = p.x + r + 2;
     const ty = p.y - r;
     ctx.lineWidth = 3;
     ctx.strokeStyle = "rgba(0,0,0,0.65)";
-    ctx.strokeText(label, tx, ty);
-    ctx.fillStyle = hidden ? "#fde68a" : "#fff";
-    ctx.fillText(label, tx, ty);
+    ctx.strokeText(String(i), tx, ty);
+    ctx.fillStyle = "#fff";
+    ctx.fillText(String(i), tx, ty);
   });
-  ctx.globalAlpha = 1;
 }
 
 function handednessOf(hand) {
@@ -259,12 +236,13 @@ function renderActive() {
   if (!hand || !lastImage) return;
   const landmarks = addOcclusion(hand.landmarks, hand.worldLandmarks);
   hand.landmarks = landmarks;
-  drawOverlay(lastImage, landmarks);
-  studio?.setHand(hand.worldLandmarks, handednessOf(hand), hand.mesh, landmarks);
-  const label = handednessOf(hand) === "Left" ? "izquierda" : "derecha";
+  const side = handednessOf(hand);
+  drawOverlay(lastImage, landmarks, side);
+  studio?.setHand(hand.worldLandmarks, side, hand.mesh, landmarks);
+  const label = isLeftHand(side) ? "izquierda · círculo" : "derecha · pentágono";
   const hidden = landmarks.filter(isOccluded).length;
   note.textContent = `Mano ${activeIndex + 1} · ${label} · 21 landmarks${
-    hidden ? ` · ${hidden} ocluidos (*)` : ""
+    hidden ? ` · ${hidden} ocluidos` : ""
   }`;
   copyBtn.hidden = false;
   wilorBtn.hidden = false;
@@ -310,7 +288,7 @@ function renderHandChips() {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "chip" + (i === activeIndex ? " active" : "");
-    const side = handednessOf(hand) === "Left" ? "Left" : "Right";
+    const side = isLeftHand(handednessOf(hand)) ? "○ Left" : "⬠ Right";
     btn.textContent = `Mano ${i + 1} · ${side}`;
     btn.addEventListener("click", () => {
       activeIndex = i;
@@ -447,6 +425,7 @@ copyBtn.addEventListener("click", async () => {
         x: Number(lm.x.toFixed(5)),
         y: Number(lm.y.toFixed(5)),
         z: Number(lm.z.toFixed(5)),
+        occluded: Boolean(lm.occluded),
       })),
     },
   ];

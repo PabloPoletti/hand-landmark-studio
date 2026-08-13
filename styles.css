@@ -224,23 +224,64 @@ footer {
   touch-action: none;
 }
 
-.label3d {
-  color: #111;
-  background: rgba(255, 255, 255, 0.88);
-  border-radius: 999px;
-  min-width: 15px;
-  height: 15px;
-  padding: 0 4px;
-  font: 700 10px/15px "Segoe UI", sans-serif;
-  text-align: center;
+.lm {
+  display: grid;
+  place-items: center;
   pointer-events: none;
   user-select: none;
+  position: relative;
 }
 
-.label3d.occluded {
-  background: rgba(253, 230, 138, 0.9);
-  color: #78350f;
-  opacity: 0.75;
+.lm span {
+  position: absolute;
+  left: 16px;
+  top: -8px;
+  color: #111;
+  font: 700 10px/1 "Segoe UI", sans-serif;
+  text-shadow: 0 0 3px #fff, 0 0 3px #fff;
+}
+
+.notation {
+  padding: 8px 28px 0;
+}
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.swatches i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+
+.shape-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dot,
+.penta {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #e8edf5;
+}
+
+.dot {
+  border-radius: 50%;
+}
+
+.penta {
+  clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
 }
 
 footer {
