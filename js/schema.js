@@ -58,11 +58,11 @@ export const CONNECTIONS = [
 ];
 
 export const FINGER_CHAINS = [
-  { key: "thumb", ids: [1, 2, 3, 4], radii: [0.11, 0.1, 0.085, 0.068] },
-  { key: "index", ids: [5, 6, 7, 8], radii: [0.09, 0.075, 0.062, 0.05] },
-  { key: "middle", ids: [9, 10, 11, 12], radii: [0.092, 0.078, 0.064, 0.052] },
-  { key: "ring", ids: [13, 14, 15, 16], radii: [0.086, 0.072, 0.06, 0.048] },
-  { key: "pinky", ids: [17, 18, 19, 20], radii: [0.078, 0.065, 0.054, 0.044] },
+  { key: "thumb", ids: [1, 2, 3, 4], radii: [0.034, 0.03, 0.026, 0.022] },
+  { key: "index", ids: [5, 6, 7, 8], radii: [0.03, 0.026, 0.022, 0.018] },
+  { key: "middle", ids: [9, 10, 11, 12], radii: [0.031, 0.027, 0.023, 0.018] },
+  { key: "ring", ids: [13, 14, 15, 16], radii: [0.029, 0.025, 0.021, 0.017] },
+  { key: "pinky", ids: [17, 18, 19, 20], radii: [0.026, 0.022, 0.019, 0.016] },
 ];
 
 export function colorFor(id) {

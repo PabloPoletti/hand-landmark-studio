@@ -34,6 +34,8 @@ let lastFile = null;
 let lastHands = [];
 let activeIndex = 0;
 let ready = false;
+let sources = { mediapipe: null, wilor: null };
+let activeSource = "mediapipe";
 
 function setStatus(text, ok = false) {
   statusEl.textContent = text;
@@ -140,45 +142,68 @@ function toDetectCanvas(image) {
   return detectCanvas;
 }
 
+function fitRect(srcW, srcH, dstW, dstH) {
+  const scale = Math.min(dstW / srcW, dstH / srcH);
+  const w = srcW * scale;
+  const h = srcH * scale;
+  return { x: (dstW - w) / 2, y: (dstH - h) / 2, w, h };
+}
+
 function drawPhoto(image) {
   const { width, height } = imageSize(image);
-  if (!width || !height) return;
-  const scale = Math.min(1, 900 / width);
-  canvas.width = Math.round(width * scale);
-  canvas.height = Math.round(height * scale);
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+  if (!width || !height) return null;
+  const size = 720;
+  canvas.width = size;
+  canvas.height = size;
+  ctx.fillStyle = "#111";
+  ctx.fillRect(0, 0, size, size);
+  const fit = fitRect(width, height, size, size);
+  ctx.drawImage(image, fit.x, fit.y, fit.w, fit.h);
+  return fit;
 }
 
 function drawOverlay(image, landmarks) {
-  drawPhoto(image);
-  if (!landmarks?.length) return;
+  const fit = drawPhoto(image);
+  if (!fit || !landmarks?.length) return;
 
-  const px = (lm) => ({ x: lm.x * canvas.width, y: lm.y * canvas.height });
-  ctx.lineWidth = Math.max(2, canvas.width / 280);
+  const px = (lm) => ({ x: fit.x + lm.x * fit.w, y: fit.y + lm.y * fit.h });
   ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = Math.max(2.5, canvas.width / 220);
   CONNECTIONS.forEach(([a, b]) => {
     const pa = px(landmarks[a]);
     const pb = px(landmarks[b]);
-    ctx.strokeStyle = colorFor(b);
+    ctx.strokeStyle = colorFor(b === 0 ? a : b);
     ctx.beginPath();
     ctx.moveTo(pa.x, pa.y);
     ctx.lineTo(pb.x, pb.y);
     ctx.stroke();
   });
 
+  const r = Math.max(3.5, canvas.width / 160);
+  const font = Math.max(11, canvas.width / 64);
   landmarks.forEach((lm, i) => {
     const p = px(lm);
-    const r = Math.max(4, canvas.width / 90);
-    ctx.fillStyle = colorFor(i);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r + 1.4, 0, Math.PI * 2);
+    ctx.fillStyle = "#fff";
+    ctx.fill();
     ctx.beginPath();
     ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = colorFor(i);
     ctx.fill();
-    ctx.fillStyle = "#111";
-    ctx.font = `700 ${Math.max(10, canvas.width / 52)}px Segoe UI, sans-serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(String(i), p.x, p.y);
+
+    ctx.font = `700 ${font}px Segoe UI, sans-serif`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "bottom";
+    const label = String(i);
+    const tx = p.x + r + 2;
+    const ty = p.y - r;
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(0,0,0,0.65)";
+    ctx.strokeText(label, tx, ty);
+    ctx.fillStyle = "#fff";
+    ctx.fillText(label, tx, ty);
   });
 }
 
@@ -197,14 +222,63 @@ function renderActive() {
   wilorBtn.hidden = false;
 }
 
-function showHands(image, detection) {
-  lastImage = image;
-  const { width, height } = imageSize(image);
-  lastHands = (detection.landmarks || []).map((landmarks, i) => ({
+function detectionToHands(detection) {
+  return (detection.landmarks || []).map((landmarks, i) => ({
     landmarks,
     worldLandmarks: detection.worldLandmarks[i],
     handedness: detection.handedness?.[i] || detection.handednesses?.[i],
   }));
+}
+
+function renderSourceChips() {
+  const existing = document.getElementById("source-switcher");
+  if (!existing) return;
+  existing.innerHTML = "";
+  [
+    ["mediapipe", "Opción A · MediaPipe"],
+    ["wilor", "Opción B · WiLoR"],
+  ].forEach(([key, label]) => {
+    if (!sources[key]?.length) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "chip" + (activeSource === key ? " active" : "");
+    btn.textContent = label;
+    btn.addEventListener("click", () => {
+      activeSource = key;
+      lastHands = sources[key];
+      activeIndex = 0;
+      renderSourceChips();
+      renderHandChips();
+      renderActive();
+    });
+    existing.appendChild(btn);
+  });
+}
+
+function renderHandChips() {
+  switcher.innerHTML = "";
+  lastHands.forEach((hand, i) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "chip" + (i === activeIndex ? " active" : "");
+    const side = handednessOf(hand) === "Left" ? "Left" : "Right";
+    btn.textContent = `Mano ${i + 1} · ${side}`;
+    btn.addEventListener("click", () => {
+      activeIndex = i;
+      [...switcher.children].forEach((c, k) => c.classList.toggle("active", k === i));
+      renderActive();
+    });
+    switcher.appendChild(btn);
+  });
+}
+
+function showHands(image, detection, source = "mediapipe") {
+  lastImage = image;
+  const { width, height } = imageSize(image);
+  const hands = detectionToHands(detection);
+  sources[source] = hands;
+  activeSource = source;
+  lastHands = hands;
 
   results.hidden = false;
   drawPhoto(image);
@@ -223,20 +297,8 @@ function showHands(image, detection) {
   results.hidden = false;
   toolbar.hidden = false;
   activeIndex = 0;
-  switcher.innerHTML = "";
-  lastHands.forEach((hand, i) => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "chip" + (i === 0 ? " active" : "");
-    const side = handednessOf(hand) === "Left" ? "Left" : "Right";
-    btn.textContent = `Mano ${i + 1} · ${side}`;
-    btn.addEventListener("click", () => {
-      activeIndex = i;
-      [...switcher.children].forEach((c, k) => c.classList.toggle("active", k === i));
-      renderActive();
-    });
-    switcher.appendChild(btn);
-  });
+  renderSourceChips();
+  renderHandChips();
   renderActive();
 }
 
@@ -272,8 +334,9 @@ async function processFile(file) {
   setStatus("Detectando mano…");
   try {
     const image = await loadImage(file);
+    sources = { mediapipe: null, wilor: null };
     const detection = landmarker.detect(toDetectCanvas(image));
-    showHands(image, detection);
+    showHands(image, detection, "mediapipe");
     const { width, height } = imageSize(image);
     setStatus(
       lastHands.length
@@ -309,7 +372,7 @@ wilorBtn.addEventListener("click", async () => {
       landmarks: hands.map((h) => h.landmarks),
       worldLandmarks: hands.map((h) => h.worldLandmarks),
       handedness: hands.map((h) => h.handedness),
-    });
+    }, "wilor");
     setStatus(`WiLoR · ${hands.length} mano${hands.length === 1 ? "" : "s"}`, true);
   } catch (err) {
     console.error(err);

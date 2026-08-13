@@ -41,11 +41,11 @@ export function alignWorldLandmarks(world, handedness) {
   return pts;
 }
 
-function bone(a, b, r0, r1, material) {
+function bone(a, b, radius, material) {
   const dir = new THREE.Vector3().subVectors(b, a);
   const len = dir.length();
   if (len < 1e-5) return null;
-  const geo = new THREE.CylinderGeometry(r1, r0, len, 14, 1, false);
+  const geo = new THREE.CylinderGeometry(radius, radius, len, 10, 1, false);
   const mesh = new THREE.Mesh(geo, material);
   mesh.position.copy(a).add(b).multiplyScalar(0.5);
   mesh.quaternion.setFromUnitVectors(Y_UP, dir.clone().normalize());
@@ -61,7 +61,7 @@ function palmGeometry(pts) {
       new THREE.Vector3().subVectors(pts[17], pts[0]),
     )
     .normalize();
-  const thick = 0.055;
+  const thick = 0.018;
   const top = ring.map((p) => p.clone().addScaledVector(n, thick));
   const bot = ring.map((p) => p.clone().addScaledVector(n, -thick));
   const cTop = new THREE.Vector3();
@@ -91,66 +91,55 @@ function palmGeometry(pts) {
 function buildGhostHand(pts) {
   const group = new THREE.Group();
   const skin = new THREE.MeshPhysicalMaterial({
-    color: 0xe8e4dc,
-    roughness: 0.45,
-    metalness: 0.02,
+    color: 0xd9d4cc,
+    roughness: 0.55,
+    metalness: 0,
     transparent: true,
-    opacity: 0.42,
+    opacity: 0.28,
     side: THREE.DoubleSide,
     depthWrite: false,
   });
-  const solid = skin.clone();
-  solid.opacity = 0.7;
-  solid.depthWrite = true;
 
   group.add(new THREE.Mesh(palmGeometry(pts), skin));
 
   const webbing = [
-    [1, 2, 5],
     [0, 1, 5],
     [0, 5, 9],
     [0, 9, 13],
     [0, 13, 17],
+    [5, 9, 13],
+    [9, 13, 17],
   ];
   webbing.forEach(([a, b, c]) => {
     const geo = new THREE.BufferGeometry().setFromPoints([pts[a], pts[b], pts[c]]);
     geo.setIndex([0, 1, 2]);
     geo.computeVertexNormals();
-    const mesh = new THREE.Mesh(geo, skin);
-    group.add(mesh);
+    group.add(new THREE.Mesh(geo, skin));
   });
 
   FINGER_CHAINS.forEach((finger) => {
-    const chain = [pts[0], ...finger.ids.map((id) => pts[id])];
-    const radii = [finger.radii[0] * 1.05, ...finger.radii];
+    const chain = finger.ids.map((id) => pts[id]);
+    if (finger.key === "thumb") chain.unshift(pts[0]);
     for (let i = 0; i < chain.length - 1; i++) {
-      const mesh = bone(chain[i], chain[i + 1], radii[i], radii[i + 1], solid);
+      const mesh = bone(chain[i], chain[i + 1], 0.032, skin);
       if (mesh) group.add(mesh);
-      group.add(new THREE.Mesh(new THREE.SphereGeometry(radii[i] * 0.98, 16, 12), solid));
-      group.children[group.children.length - 1].position.copy(chain[i]);
     }
-    const tip = chain[chain.length - 1];
-    const tipMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(radii[radii.length - 1] * 1.05, 16, 12),
-      solid,
-    );
-    tipMesh.position.copy(tip);
-    group.add(tipMesh);
   });
 
   CONNECTIONS.forEach(([a, b]) => {
-    const geo = new THREE.BufferGeometry().setFromPoints([pts[a], pts[b]]);
-    const mat = new THREE.LineBasicMaterial({
-      color: colorFor(b === 0 ? a : b),
-      linewidth: 2,
-    });
-    group.add(new THREE.Line(geo, mat));
+    const mesh = bone(
+      pts[a],
+      pts[b],
+      0.01,
+      new THREE.MeshBasicMaterial({ color: colorFor(b === 0 ? a : b) }),
+    );
+    if (mesh) group.add(mesh);
   });
 
   pts.forEach((p, i) => {
     const ball = new THREE.Mesh(
-      new THREE.SphereGeometry(0.028, 14, 12),
-      new THREE.MeshStandardMaterial({ color: colorFor(i), roughness: 0.35 }),
+      new THREE.SphereGeometry(0.018, 12, 10),
+      new THREE.MeshBasicMaterial({ color: colorFor(i) }),
     );
     ball.position.copy(p);
     group.add(ball);
@@ -160,6 +149,7 @@ function buildGhostHand(pts) {
     el.textContent = String(i);
     const label = new CSS2DObject(el);
     label.position.copy(p);
+    label.center.set(0.5, 1.35);
     group.add(label);
   });
 
@@ -189,13 +179,10 @@ function makeView(container, cameraPos) {
   controls.minDistance = 1.4;
   controls.maxDistance = 5;
 
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8a8a, 1.1));
-  const key = new THREE.DirectionalLight(0xffffff, 0.85);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8a8a, 1.15));
+  const key = new THREE.DirectionalLight(0xffffff, 0.7);
   key.position.set(1.4, 2.2, 1.8);
   scene.add(key);
-  const fill = new THREE.DirectionalLight(0xffffff, 0.35);
-  fill.position.set(-2, 0.4, -1);
-  scene.add(fill);
 
   return { scene, camera, renderer, labels, controls, hand: null };
 }

@@ -163,6 +163,10 @@ kbd {
   flex-wrap: wrap;
 }
 
+.toolbar .switcher + .switcher {
+  margin-top: 8px;
+}
+
 .note,
 .empty,
 footer {
@@ -215,8 +219,13 @@ footer {
 
 .label3d {
   color: #111;
-  font: 700 11px/1 "Segoe UI", sans-serif;
-  text-shadow: 0 0 3px #fff, 0 0 3px #fff;
+  background: rgba(255, 255, 255, 0.88);
+  border-radius: 999px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  font: 700 10px/15px "Segoe UI", sans-serif;
+  text-align: center;
   pointer-events: none;
   user-select: none;
 }
