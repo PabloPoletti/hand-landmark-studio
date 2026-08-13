@@ -46,7 +46,14 @@ export async function predictWilor(file, onStatus) {
   const stream = await fetch(`${WILOR_SPACE}/gradio_api/call/predict/${eventId}`);
   if (!stream.ok) throw new Error(`WiLoR falló al devolver el resultado (${stream.status}).`);
   const payload = parseSseJson(await stream.text());
-  const result = Array.isArray(payload) ? payload[0] : payload;
+  let result = Array.isArray(payload) ? payload[0] : payload;
+  if (typeof result === "string") {
+    try {
+      result = JSON.parse(result);
+    } catch {
+      throw new Error(result || "WiLoR devolvió un texto inválido.");
+    }
+  }
   if (!result || result.error) {
     throw new Error(result?.error || "WiLoR no devolvió landmarks.");
   }

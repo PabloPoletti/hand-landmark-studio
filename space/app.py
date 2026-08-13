@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import subprocess
 import sys
 
@@ -6,6 +7,20 @@ import numpy as np
 import torch
 import gradio as gr
 import spaces
+from gradio_client import utils as gradio_schema
+
+# Gradio 4.44 crashes when additionalProperties is a bool (True/False),
+# not a schema object. Patch before building the UI.
+_orig_get_type = gradio_schema.get_type
+
+
+def _safe_get_type(schema):
+    if not isinstance(schema, dict):
+        return "Any"
+    return _orig_get_type(schema)
+
+
+gradio_schema.get_type = _safe_get_type
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 DTYPE = torch.float16 if DEVICE.type == "cuda" else torch.float32
@@ -39,10 +54,14 @@ def get_pipe():
     return PIPE
 
 
+def pack(payload):
+    return json.dumps(payload)
+
+
 @spaces.GPU(duration=90)
 def predict(image):
     if image is None:
-        return {"hands": [], "error": "No image"}
+        return pack({"hands": [], "error": "No image"})
 
     img = np.asarray(image)
     if img.ndim == 2:
@@ -80,17 +99,17 @@ def predict(image):
                 ],
             }
         )
-    return {"hands": hands, "engine": "wilor-mini", "device": str(DEVICE)}
+    return pack({"hands": hands, "engine": "wilor-mini", "device": str(DEVICE)})
 
 
 demo = gr.Interface(
     fn=predict,
     inputs=gr.Image(type="numpy", label="Foto de la mano"),
-    outputs=gr.JSON(label="21 landmarks"),
+    outputs=gr.Textbox(label="21 landmarks (JSON)", lines=18),
     title="Hand WiLoR",
     description="Backend de WiLoR-mini para Hand Landmark Studio. Pegá una foto y obtené 21 puntos 2D/3D.",
     allow_flagging="never",
 )
 
 if __name__ == "__main__":
-    demo.queue().launch()
+    demo.queue().launch(share=False, server_name="0.0.0.0", server_port=7860)
