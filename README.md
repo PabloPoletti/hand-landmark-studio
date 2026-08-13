@@ -39,6 +39,7 @@ MediaPipe corre solo. El botón **Refinar con WiLoR** llama a un [Space](https:/
 1. Creá una cuenta en [huggingface.co](https://huggingface.co/join) (gratis).
 2. En [New Space](https://huggingface.co/new-space) elegí Gradio, Python 3.10, hardware **CPU basic**.
 3. Subí los archivos de `space/` (`app.py`, `requirements.txt`, `README.md`).
-4. Cuando el Space esté `Running`, copiá la URL `https://xxxxx.hf.space` en `js/config.js`.
+El Space publicado es [Ardilos/hand-wilor-gradio](https://huggingface.co/spaces/Ardilos/hand-wilor-gradio)
+(`https://ardilos-hand-wilor-gradio.hf.space`).
 
 La primera inferencia tarda porque descarga los pesos. Después, cada foto puede llevar 10–40 s en CPU.

@@ -10,5 +10,6 @@ scikit-image
 roma
 numpy
 gradio==4.44.1
+spaces
 git+https://github.com/warmshao/WiLoR-mini
 git+https://github.com/mattloper/chumpy

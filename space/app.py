@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import gradio as gr
+import spaces
 from wilor_mini.pipelines.wilor_hand_pose3d_estimation_pipeline import (
     WiLorHandPose3dEstimationPipeline,
 )
@@ -19,6 +20,7 @@ def get_pipe():
     return PIPE
 
 
+@spaces.GPU(duration=90)
 def predict(image):
     if image is None:
         return {"hands": [], "error": "No image"}
