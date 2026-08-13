@@ -86,6 +86,7 @@ export function wilorToHands(result) {
       x: lm.x,
       y: lm.y,
       z: lm.z ?? 0,
+      occluded: Boolean(lm.occluded),
     })),
     worldLandmarks: hand.landmarks.map((lm) => ({
       x: lm.X,

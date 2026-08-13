@@ -62,28 +62,39 @@ function bone(a, b, radius, material) {
   return mesh;
 }
 
-function addSkeleton(group, pts) {
+function addSkeleton(group, pts, landmarks = []) {
   CONNECTIONS.forEach(([a, b]) => {
+    const hidden = landmarks[a]?.occluded || landmarks[b]?.occluded;
     const mesh = bone(
       pts[a],
       pts[b],
-      0.012,
-      new THREE.MeshBasicMaterial({ color: colorFor(b === 0 ? a : b) }),
+      hidden ? 0.008 : 0.012,
+      new THREE.MeshBasicMaterial({
+        color: colorFor(b === 0 ? a : b),
+        transparent: hidden,
+        opacity: hidden ? 0.35 : 1,
+      }),
     );
     if (mesh) group.add(mesh);
   });
 
   pts.forEach((p, i) => {
+    const hidden = Boolean(landmarks[i]?.occluded);
     const ball = new THREE.Mesh(
-      new THREE.SphereGeometry(0.02, 12, 10),
-      new THREE.MeshBasicMaterial({ color: colorFor(i) }),
+      new THREE.SphereGeometry(hidden ? 0.016 : 0.02, 12, 10),
+      new THREE.MeshBasicMaterial({
+        color: colorFor(i),
+        transparent: hidden,
+        opacity: hidden ? 0.35 : 1,
+        wireframe: hidden,
+      }),
     );
     ball.position.copy(p);
     group.add(ball);
 
     const el = document.createElement("div");
-    el.className = "label3d";
-    el.textContent = String(i);
+    el.className = "label3d" + (hidden ? " occluded" : "");
+    el.textContent = hidden ? `${i}*` : String(i);
     const label = new CSS2DObject(el);
     label.position.copy(p);
     label.center.set(0.5, 1.4);
@@ -91,7 +102,7 @@ function addSkeleton(group, pts) {
   });
 }
 
-function buildManoHand(pts, meshData, apply) {
+function buildManoHand(pts, meshData, apply, landmarks) {
   const group = new THREE.Group();
   const verts = meshData.vertices.map((v) => apply(v));
   const geo = new THREE.BufferGeometry();
@@ -119,7 +130,7 @@ function buildManoHand(pts, meshData, apply) {
       }),
     ),
   );
-  addSkeleton(group, pts);
+  addSkeleton(group, pts, landmarks);
   return group;
 }
 
@@ -159,7 +170,7 @@ function palmGeometry(pts) {
   return geo;
 }
 
-function buildGhostHand(pts) {
+function buildGhostHand(pts, landmarks) {
   const group = new THREE.Group();
   const skin = new THREE.MeshPhysicalMaterial({
     color: 0xd9d4cc,
@@ -195,7 +206,7 @@ function buildGhostHand(pts) {
     }
   });
 
-  addSkeleton(group, pts);
+  addSkeleton(group, pts, landmarks);
   return group;
 }
 
@@ -276,7 +287,7 @@ export class HandStudio3D {
     });
   }
 
-  setHand(worldLandmarks, handedness, mesh) {
+  setHand(worldLandmarks, handedness, mesh, landmarks = []) {
     const aligned = alignmentFromLandmarks(worldLandmarks, handedness);
     const hasMesh = mesh?.vertices?.length && mesh?.faces?.length;
     Object.values(this.views).forEach((v) => {
@@ -285,8 +296,8 @@ export class HandStudio3D {
         disposeHand(v.hand);
       }
       v.hand = hasMesh
-        ? buildManoHand(aligned.pts, mesh, aligned.apply)
-        : buildGhostHand(aligned.pts);
+        ? buildManoHand(aligned.pts, mesh, aligned.apply, landmarks)
+        : buildGhostHand(aligned.pts, landmarks);
       v.scene.add(v.hand);
     });
     this.resize();

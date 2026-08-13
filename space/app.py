@@ -13,7 +13,7 @@ import torch
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from gradio.routes import App
-from PIL import Image
+from PIL import Image, ImageOps
 
 # PyTorch 2.6+ defaults torch.load(weights_only=True), which blocks the
 # official WiLoR-mini YOLO/MANO checkpoints (trusted HF weights).
@@ -109,7 +109,8 @@ def decode_image(payload):
         img = np.asarray(payload.convert("RGB"))
     elif isinstance(payload, str):
         raw = payload.split(",", 1)[1] if payload.startswith("data:") else payload
-        img = np.asarray(Image.open(io.BytesIO(base64.b64decode(raw))).convert("RGB"))
+        pil = ImageOps.exif_transpose(Image.open(io.BytesIO(base64.b64decode(raw))))
+        img = np.asarray(pil.convert("RGB"))
     else:
         raise ValueError("Formato de imagen no soportado")
 
@@ -134,6 +135,36 @@ def as_points(values):
     return points
 
 
+def fit_to_bbox(points_xy, bbox, pad=0.22):
+    x1, y1, x2, y2 = [float(v) for v in bbox[:4]]
+    cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+    bw, bh = max(x2 - x1, 1.0) * (1.0 + pad), max(y2 - y1, 1.0) * (1.0 + pad)
+    lo = points_xy.min(axis=0)
+    hi = points_xy.max(axis=0)
+    sw, sh = max(float(hi[0] - lo[0]), 1e-6), max(float(hi[1] - lo[1]), 1e-6)
+    scale = min(bw / sw, bh / sh)
+    src = (lo + hi) / 2.0
+    return (points_xy - src) * scale + np.array([cx, cy], dtype=np.float64)
+
+
+def occlusion_flags(points_3d):
+    palm_ids = [0, 5, 9, 13, 17]
+    palm_z = float(np.mean(points_3d[palm_ids, 2]))
+    palm_c = points_3d[palm_ids].mean(axis=0)
+    normal = np.cross(points_3d[5] - points_3d[0], points_3d[17] - points_3d[0])
+    if normal[2] > 0:
+        normal = -normal
+    flags = []
+    for index, point in enumerate(points_3d):
+        if index in palm_ids:
+            flags.append(False)
+            continue
+        behind_depth = float(point[2]) > palm_z + 0.008
+        behind_plane = float(np.dot(point - palm_c, normal)) < -0.004
+        flags.append(bool(behind_depth or behind_plane))
+    return flags
+
+
 def infer(image_rgb):
     img = decode_image(image_rgb)
     bgr = img[:, :, ::-1].copy()
@@ -146,23 +177,29 @@ def infer(image_rgb):
         keypoints_3d = preds.get("pred_keypoints_3d")
         if keypoints_2d is None or keypoints_3d is None:
             continue
-        points_2d = as_points(keypoints_2d)
+        points_2d = as_points(keypoints_2d)[:, :2]
         points_3d = as_points(keypoints_3d)
         count = min(21, len(points_2d), len(points_3d))
         if count < 21:
             continue
+        bbox = out.get("hand_bbox")
+        if bbox is not None and len(bbox) >= 4:
+            points_2d = fit_to_bbox(points_2d, bbox)
+        hidden = occlusion_flags(points_3d[:count])
         hand = {
             "hand": index + 1,
             "is_right": bool(out.get("is_right", 1)),
+            "bbox": [float(v) for v in bbox[:4]] if bbox is not None else None,
             "landmarks": [
                 {
                     "id": joint,
                     "x": float(points_2d[joint, 0] / width),
                     "y": float(points_2d[joint, 1] / height),
-                    "z": float(points_2d[joint, 2]) if points_2d.shape[1] > 2 else 0.0,
+                    "z": float(points_3d[joint, 2]),
                     "X": float(points_3d[joint, 0]),
                     "Y": float(points_3d[joint, 1]),
                     "Z": float(points_3d[joint, 2]),
+                    "occluded": hidden[joint],
                 }
                 for joint in range(count)
             ],
