@@ -1,5 +1,5 @@
-import { CONNECTIONS, NAMES, colorFor, boneColor } from "./schema.js?v=37";
-import { predictWilor, wilorToHands } from "./wilor.js?v=37";
+import { CONNECTIONS, NAMES, colorFor, boneColor } from "./schema.js?v=38";
+import { predictWilor, wilorToHands } from "./wilor.js?v=38";
 
 const LOCAL_BASE = new URL("../vendor/mediapipe/", import.meta.url);
 const MODEL = new URL("hand_landmarker.task", LOCAL_BASE).href;
@@ -91,9 +91,9 @@ async function createLandmarker(HandLandmarker, vision, delegate) {
     baseOptions: { modelAssetPath: MODEL, delegate },
     runningMode: "IMAGE",
     numHands: 2,
-    minHandDetectionConfidence: 0.05,
-    minHandPresenceConfidence: 0.05,
-    minTrackingConfidence: 0.05,
+    minHandDetectionConfidence: 0.12,
+    minHandPresenceConfidence: 0.12,
+    minTrackingConfidence: 0.12,
   });
 }
 
@@ -107,7 +107,7 @@ async function initModel() {
     "Modelo de manos",
   );
   try {
-    const three = await import("./hand3d.js?v=37");
+    const three = await import("./hand3d.js?v=38");
     studio = new three.HandStudio3D();
   } catch (err) {
     console.warn("Vista 3D no disponible", err);
@@ -239,33 +239,13 @@ function isOccluded(lm) {
 }
 
 const VISIBLE_KNUCKLES = [0, 5, 9, 13, 17];
-const TUCK_IDS = [3, 4, 7, 8, 11, 12, 15, 16, 19, 20];
 
-function pointInPoly(point, poly) {
-  let inside = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const xi = poly[i].x;
-    const yi = poly[i].y;
-    const xj = poly[j].x;
-    const yj = poly[j].y;
-    const hit = yi > point.y !== yj > point.y && point.x < ((xj - xi) * (point.y - yi)) / (yj - yi + 1e-9) + xi;
-    if (hit) inside = !inside;
-  }
-  return inside;
-}
-
-function addOcclusion(landmarks, world) {
-  const src = world || landmarks;
-  const palm = VISIBLE_KNUCKLES;
-  const palmZ = palm.reduce((sum, id) => sum + (src[id]?.z ?? 0), 0) / palm.length;
-  const hull = [0, 1, 5, 9, 13, 17].map((id) => landmarks[id]).filter(Boolean);
+function addOcclusion(landmarks) {
   return landmarks.map((lm, i) => {
     if (VISIBLE_KNUCKLES.includes(i)) return { ...lm, occluded: false };
-    let occluded = lm.occluded === true;
-    if (typeof lm.visibility === "number") occluded = occluded || lm.visibility < 0.45;
-    if (typeof lm.presence === "number") occluded = occluded || lm.presence < 0.5;
-    if (TUCK_IDS.includes(i) && hull.length >= 4 && pointInPoly(lm, hull)) occluded = true;
-    if ((src[i]?.z ?? 0) > palmZ + 0.03) occluded = true;
+    let occluded = false;
+    if (typeof lm.visibility === "number") occluded = lm.visibility < 0.32;
+    if (typeof lm.presence === "number") occluded = occluded || lm.presence < 0.38;
     return { ...lm, occluded };
   });
 }
@@ -366,8 +346,31 @@ function drawOverlay(image, landmarks, handedness) {
   });
 }
 
+function handednessFromAnatomy(landmarks, world) {
+  if (!landmarks?.[4] || !landmarks[17] || !landmarks[0]) return null;
+  const spread = Math.abs(landmarks[4].x - landmarks[17].x);
+  if (spread < 0.05) return null;
+  const thumbLeft = landmarks[4].x < landmarks[17].x;
+  let seeingBack = true;
+  if (world?.[0] && world[5] && world[17]) {
+    const ax = world[5].x - world[0].x;
+    const ay = world[5].y - world[0].y;
+    const bx = world[17].x - world[0].x;
+    const by = world[17].y - world[0].y;
+    seeingBack = ax * by - ay * bx > 0;
+  }
+  return (seeingBack ? thumbLeft : !thumbLeft) ? "Right" : "Left";
+}
+
 function handednessOf(hand) {
-  return hand.handedness?.[0]?.categoryName || hand.handednesses?.[0]?.categoryName || "Unknown";
+  const cat = hand.handedness?.[0] || hand.handednesses?.[0];
+  const labeled = cat?.categoryName;
+  const score = cat?.score ?? 0;
+  const guessed = handednessFromAnatomy(hand.landmarks, hand.worldLandmarks);
+  const confident = Math.abs((hand.landmarks?.[4]?.x ?? 0) - (hand.landmarks?.[17]?.x ?? 0)) >= 0.08;
+  if (guessed && confident && guessed !== labeled) return guessed;
+  if (labeled === "Left" || labeled === "Right") return labeled;
+  return guessed || "Unknown";
 }
 
 function photoLandmarks(hand) {
@@ -383,105 +386,25 @@ function photoLandmarks(hand) {
   }));
 }
 
-function pointDist(a, b) {
-  if (!a || !b) return 0;
-  return Math.hypot(a.x - b.x, a.y - b.y, (a.z ?? 0) - (b.z ?? 0));
-}
-
-function mixPoint(a, b, t) {
-  return {
-    ...b,
-    x: a.x + (b.x - a.x) * t,
-    y: a.y + (b.y - a.y) * t,
-    z: (a.z ?? 0) + ((b.z ?? 0) - (a.z ?? 0)) * t,
-    occluded: false,
-  };
-}
-
-function repairLandmarks(src) {
-  if (!src?.length) return src;
-  const pts = src.map((lm) => ({ ...lm }));
-  const wrist = pts[0];
-  const mcps = [5, 9, 13, 17];
-  const pips = [6, 10, 14, 18];
-  mcps.forEach((mcp, i) => {
-    const pip = pts[pips[i]];
-    if (!wrist || !pip || !pts[mcp]) return;
-    const palm = pointDist(wrist, pip);
-    if (palm > 1e-6 && pointDist(wrist, pts[mcp]) < palm * 0.28) {
-      pts[mcp] = { ...pts[mcp], ...mixPoint(wrist, pip, 0.4) };
-    }
-    pts[mcp].occluded = false;
-  });
-  if (wrist && pts[1] && pts[2] && pointDist(wrist, pts[1]) < pointDist(wrist, pts[2]) * 0.22) {
-    pts[1] = { ...pts[1], ...mixPoint(wrist, pts[2], 0.34) };
-  }
-  const span = pointDist(pts[5], pts[17]);
-  for (let i = 0; i < 3 && span > 1e-6; i++) {
-    if (pointDist(pts[mcps[i]], pts[mcps[i + 1]]) < span * 0.1) {
-      pts[mcps[i + 1]] = {
-        ...pts[mcps[i + 1]],
-        ...mixPoint(pts[5], pts[17], (i + 1) / 4),
-      };
-    }
-  }
-  if (pts[0]) pts[0].occluded = false;
-  return pts;
-}
-
-function retractTips(landmarks) {
-  const tips = [4, 8, 12, 16, 20];
-  const prev = [3, 7, 11, 15, 19];
-  return landmarks.map((lm, i) => {
-    const idx = tips.indexOf(i);
-    if (idx < 0) return lm;
-    const base = landmarks[prev[idx]];
-    if (!base) return lm;
-    return {
-      ...lm,
-      x: base.x + (lm.x - base.x) * 0.9,
-      y: base.y + (lm.y - base.y) * 0.9,
-    };
-  });
-}
-
-function hybridOccluded(landmarks, hand) {
-  return landmarks.map((lm, i) => {
-    const wilor = hand.landmarks[i];
-    if (
-      lm.occluded &&
-      wilor &&
-      Number.isFinite(wilor.x) &&
-      Number.isFinite(wilor.y)
-    ) {
-      return { ...lm, x: wilor.x, y: wilor.y, z: wilor.z ?? lm.z };
-    }
-    return lm;
-  });
-}
-
 function renderActive() {
   const hand = lastHands[activeIndex];
   if (!hand || !lastImage) return;
   const mp = sources.mediapipe?.[activeIndex] || sources.mediapipe?.[0];
-  const landmarks = retractTips(
-    repairLandmarks(
-      hybridOccluded(addOcclusion(photoLandmarks(hand), mp?.worldLandmarks || hand.worldLandmarks), hand),
-    ),
-  );
-  drawOverlay(lastImage, landmarks, handednessOf(hand));
+  const side = handednessOf(mp || hand);
+  const landmarks = addOcclusion(photoLandmarks(mp || hand));
+  drawOverlay(lastImage, landmarks, side);
   const wilorWorld = hand.worldLandmarks?.length >= 21 ? hand.worldLandmarks : null;
   const mpWorld = mp?.worldLandmarks?.length >= 21 ? mp.worldLandmarks : null;
   const useWilorMesh = activeSource === "wilor" && hand.mesh && wilorWorld;
-  const world = useWilorMesh ? wilorWorld : repairLandmarks(mpWorld || wilorWorld || landmarks);
+  const world = useWilorMesh ? wilorWorld : mpWorld || wilorWorld || landmarks;
   const mesh = useWilorMesh ? hand.mesh : null;
   try {
-    studio?.setHand(world, handednessOf(hand), mesh, landmarks);
+    studio?.setHand(world, side, mesh, landmarks);
   } catch (err) {
     console.warn(err);
-    studio?.setHand(world, handednessOf(hand), null, landmarks);
+    studio?.setHand(world, side, null, landmarks);
   }
-  const label = handednessOf(hand) === "Left" ? "izquierda" : "derecha";
+  const label = side === "Left" ? "izquierda" : "derecha";
   const hidden = landmarks.filter(isOccluded).length;
   note.textContent = `Mano ${activeIndex + 1} · ${label} · 21 landmarks${
     hidden ? ` · ${hidden} ocluidos` : ""
@@ -531,7 +454,7 @@ function renderHandChips() {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "chip" + (i === activeIndex ? " active" : "");
-    const side = handednessOf(hand) === "Left" ? "Left" : "Right";
+    const side = handednessOf(sources.mediapipe?.[i] || hand) === "Left" ? "Left" : "Right";
     btn.textContent = `Mano ${i + 1} · ${side}`;
     btn.addEventListener("click", () => {
       activeIndex = i;
@@ -594,6 +517,26 @@ async function loadImage(file) {
   }
 }
 
+async function detectHands(image) {
+  const first = landmarker.detect(toDetectCanvas(image));
+  if (!first.landmarks?.[0] || first.landmarks[0].length < 21) return first;
+  try {
+    const cropped = await cropHandFile(image, first.landmarks[0]);
+    if (!cropped?.file) return first;
+    const cropImage = await loadImage(cropped.file);
+    const again = landmarker.detect(toDetectCanvas(cropImage));
+    if (!again.landmarks?.[0] || again.landmarks[0].length < 21) return first;
+    return {
+      landmarks: [again.landmarks[0].map((lm) => remapCropToFull(lm, cropped.meta))],
+      worldLandmarks: again.worldLandmarks?.[0] ? [again.worldLandmarks[0]] : first.worldLandmarks,
+      handedness: again.handedness?.[0] ? [again.handedness[0]] : first.handedness,
+    };
+  } catch (err) {
+    console.warn("No se pudo refinar el recorte", err);
+    return first;
+  }
+}
+
 async function processFile(file) {
   if (!file || !String(file.type || "").startsWith("image/")) return;
   lastFile = file;
@@ -607,7 +550,7 @@ async function processFile(file) {
   try {
     const image = await loadImage(file);
     sources = { mediapipe: null, wilor: null };
-    const detection = landmarker.detect(toDetectCanvas(image));
+    const detection = await detectHands(image);
     showHands(image, detection, "mediapipe");
     const { width, height } = imageSize(image);
     setStatus(
@@ -637,7 +580,13 @@ async function refineWithWilor() {
   wilorBtn.disabled = true;
   try {
     const mpHand = sources.mediapipe?.[0];
-    const hint = mpHand ? handednessOf(mpHand) === "Right" : null;
+    const hint = mpHand
+      ? handednessOf(mpHand) === "Right"
+        ? true
+        : handednessOf(mpHand) === "Left"
+          ? false
+          : null
+      : null;
     const cropped =
       mpHand?.landmarks?.length === 21
         ? await cropHandFile(lastImage, mpHand.landmarks)

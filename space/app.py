@@ -323,14 +323,12 @@ def infer(image_rgb, is_right_hint=None):
         keypoints_3d = first_present(preds.get("pred_keypoints_3d"))
         yolo_right = as_right(out.get("is_right", 1))
         chosen = yolo_right
-        if not is_missing(keypoints_2d) and not is_missing(keypoints_3d):
+        if hint is not None:
+            chosen = hint
+        elif not is_missing(keypoints_2d) and not is_missing(keypoints_3d):
             guessed = anatomy_is_right(as_points(keypoints_2d)[:, :2], as_points(keypoints_3d))
             if guessed is not None:
                 chosen = guessed
-            elif hint is not None:
-                chosen = hint
-        elif hint is not None:
-            chosen = hint
         bboxes.append(bbox)
         rights.append(1.0 if chosen else 0.0)
 

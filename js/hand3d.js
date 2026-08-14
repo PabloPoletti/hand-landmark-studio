@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { CONNECTIONS, FINGER_CHAINS, colorFor, boneColor } from "./schema.js?v=37";
+import { CONNECTIONS, FINGER_CHAINS, colorFor, boneColor } from "./schema.js?v=38";
 
 const SKIN_SCALE = 1.42;
 const MCP_IDS = new Set([1, 5, 9, 13, 17]);
@@ -59,7 +59,6 @@ function alignmentFromLandmarks(world, handedness) {
   let z = new THREE.Vector3().crossVectors(index, pinky);
   if (z.lengthSq() < 1e-8) z = new THREE.Vector3(0, 0, 1);
   z.normalize();
-  if (handedness === "Left") z.negate();
   const x = new THREE.Vector3().crossVectors(y, z).normalize();
   z.crossVectors(x, y).normalize();
   const basis = new THREE.Matrix4().makeBasis(x, y, z).invert();
