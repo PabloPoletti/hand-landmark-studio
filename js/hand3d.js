@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { CONNECTIONS, FINGER_CHAINS, colorFor, boneColor } from "./schema.js?v=38";
+import { CONNECTIONS, FINGER_CHAINS, colorFor, boneColor } from "./schema.js?v=39";
 
 const SKIN_SCALE = 1.42;
 const MCP_IDS = new Set([1, 5, 9, 13, 17]);

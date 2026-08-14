@@ -1,5 +1,5 @@
-import { CONNECTIONS, NAMES, colorFor, boneColor } from "./schema.js?v=38";
-import { predictWilor, wilorToHands } from "./wilor.js?v=38";
+import { CONNECTIONS, NAMES, colorFor, boneColor } from "./schema.js?v=39";
+import { predictWilor, wilorToHands } from "./wilor.js?v=39";
 
 const LOCAL_BASE = new URL("../vendor/mediapipe/", import.meta.url);
 const MODEL = new URL("hand_landmarker.task", LOCAL_BASE).href;
@@ -107,7 +107,7 @@ async function initModel() {
     "Modelo de manos",
   );
   try {
-    const three = await import("./hand3d.js?v=38");
+    const three = await import("./hand3d.js?v=39");
     studio = new three.HandStudio3D();
   } catch (err) {
     console.warn("Vista 3D no disponible", err);
@@ -151,24 +151,41 @@ function handCropBox(landmarks, pad = 0.32) {
   };
 }
 
+function landmarkQuality(landmarks) {
+  if (!landmarks || landmarks.length < 21) return -1;
+  const xs = landmarks.map((lm) => lm.x);
+  const ys = landmarks.map((lm) => lm.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const span = Math.hypot(maxX - minX, maxY - minY);
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  const wrist = landmarks[0];
+  const wristEdge = Math.hypot(wrist.x - cx, wrist.y - cy) / (span + 1e-6);
+  const thumb = Math.hypot(landmarks[4].x - landmarks[1].x, landmarks[4].y - landmarks[1].y);
+  const index = Math.hypot(landmarks[8].x - landmarks[5].x, landmarks[8].y - landmarks[5].y);
+  const knuckles = Math.hypot(landmarks[5].x - landmarks[17].x, landmarks[5].y - landmarks[17].y);
+  return span * 4 + wristEdge * 3 + thumb * 6 + index * 2 + knuckles * 2;
+}
+
 function cropHandFile(image, landmarks) {
   const { width, height } = imageSize(image);
-  const box = handCropBox(landmarks);
+  const box = handCropBox(landmarks, 0.45);
   const sx = Math.floor(box.x * width);
   const sy = Math.floor(box.y * height);
   const sw = Math.max(48, Math.ceil(box.w * width));
   const sh = Math.max(48, Math.ceil(box.h * height));
-  const size = Math.max(sw, sh, 256);
-  const ox = (size - sw) / 2;
-  const oy = (size - sh) / 2;
+  const size = Math.max(sw, sh);
+  const ox = 0;
+  const oy = 0;
   const crop = document.createElement("canvas");
-  crop.width = size;
-  crop.height = size;
+  crop.width = sw;
+  crop.height = sh;
   const g = crop.getContext("2d");
-  g.fillStyle = "#777";
-  g.fillRect(0, 0, size, size);
-  g.drawImage(image, sx, sy, sw, sh, ox, oy, sw, sh);
-  const meta = { sx, sy, sw, sh, size, ox, oy, width, height };
+  g.drawImage(image, sx, sy, sw, sh, 0, 0, sw, sh);
+  const meta = { sx, sy, sw, sh, size: sw, ox, oy, width, height };
   return new Promise((resolve) => {
     crop.toBlob(
       (blob) => {
@@ -520,14 +537,17 @@ async function loadImage(file) {
 async function detectHands(image) {
   const first = landmarker.detect(toDetectCanvas(image));
   if (!first.landmarks?.[0] || first.landmarks[0].length < 21) return first;
+  const firstScore = landmarkQuality(first.landmarks[0]);
   try {
     const cropped = await cropHandFile(image, first.landmarks[0]);
     if (!cropped?.file) return first;
     const cropImage = await loadImage(cropped.file);
     const again = landmarker.detect(toDetectCanvas(cropImage));
     if (!again.landmarks?.[0] || again.landmarks[0].length < 21) return first;
+    const mapped = again.landmarks[0].map((lm) => remapCropToFull(lm, cropped.meta));
+    if (landmarkQuality(mapped) <= firstScore + 0.02) return first;
     return {
-      landmarks: [again.landmarks[0].map((lm) => remapCropToFull(lm, cropped.meta))],
+      landmarks: [mapped],
       worldLandmarks: again.worldLandmarks?.[0] ? [again.worldLandmarks[0]] : first.worldLandmarks,
       handedness: again.handedness?.[0] ? [again.handedness[0]] : first.handedness,
     };
